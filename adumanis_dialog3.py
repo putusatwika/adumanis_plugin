@@ -90,7 +90,7 @@ class AdumanisDialog3(QtWidgets.QDialog, FORM_CLASS):
         self.control.addItems([layer.name() for layer in layers])
 
     def bar(self):
-        for i in range(5):
+        for i in range(100):
             time.sleep(0.01)
             self.progressBar.setValue(i+1)
             self.pushButton.setEnabled(True)
@@ -647,6 +647,7 @@ class AdumanisDialog3(QtWidgets.QDialog, FORM_CLASS):
         del tieIdxMerge 
         del aloneNode 
         del SdSxx
+        
 
         # ## MESSAGE OUT:
         msg = str("Proses Adumanis telah selesai!")
@@ -656,3 +657,4 @@ class AdumanisDialog3(QtWidgets.QDialog, FORM_CLASS):
         self.control.clear()
         self.block.addItems([layer.name() for layer in layers])
         self.control.addItems([layer.name() for layer in layers])
+        
