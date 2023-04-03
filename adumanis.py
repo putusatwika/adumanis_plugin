@@ -21,14 +21,28 @@
  *                                                                         *
  ***************************************************************************/
 """
+
+from qgis.PyQt import QtWidgets, QtGui
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+# DARI PAK WIKA
+from qgis.core import QgsProject, Qgis, QgsFeatureSink, QgsMultiPolygon, QgsVectorLayer, QgsField, QgsWkbTypes, QgsGeometry, QgsFeature, QgsPointXY
+from console import console
+import pandas as pd
+import numpy as np
+import sys
+import math
+
+from .adumanis_lib import Euclidean
+from .adumanis_lib import nodeEvaluation
+from .adumanis_lib import closestControl
+
 # Initialize Qt resources from file resources.py
 from .resources import *
 # Import the code for the dialog
-from .adumanis_dialog2 import adumanisDialog2
+from .adumanis_dialog3 import AdumanisDialog3
 import os.path
 
 
@@ -61,7 +75,7 @@ class adumanis:
 
         # Declare instance attributes
         self.actions = []
-        self.menu = self.tr(u'&BPN Plugin')
+        self.menu = self.tr(u'&ITB-MASKI')
 
         # Check if plugin was started the first time in current QGIS session
         # Must be set in initGui() to survive plugin reloads
@@ -187,7 +201,11 @@ class adumanis:
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
             self.first_start = False
-            self.dlg = adumanisDialog2()
+            #self.dlg = adumanisDialog2()
+            self.dlg = AdumanisDialog3(self.iface)
+            self.dlg.textBrowser_2.setFixedWidth(300)
+            self.dlg.textBrowser_2.setText("<b>ADUMANIS</b>"+ "<p><br>Plugin Adumanis adalah modul untuk memanipulasi layer</p>")
+            self.dlg.textBrowser_2.setFont(QtGui.QFont("monospace", 11))
 
         # show the dialog
         self.dlg.show()
