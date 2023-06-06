@@ -3,14 +3,14 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=Adumanis
+name=Adumanis Plugin
 qgisMinimumVersion=3.0
-description=Adumanis
-version=0.1
-author=Naufal Akbar
-email=ufalakbar111@gmail.com
+description=Parcel Block Adjustment
+version=0.93
+author=Institut Teknologi Bandung (ITB)
+email=putusatwika@gmail.com
 
-about=Provide a brief description of the plugin and its purpose.
+about=Plugin ini merupakan plugin untuk melakukan parcel block adjustment dengan metode least square. Aplikasi ini merupakan hasil kerjasama Institut Teknologi Bandung dengan Masyarakat Ahli Survey Kadastral Indonesia (MASKI) untuk melakukan perbaikan parcel tanah berdasarkan nilai toleransi tertentu.
 
 tracker=http://bugs
 repository=http://repo
@@ -23,13 +23,15 @@ hasProcessingProvider=no
 # changelog=
 
 # Tags are comma separated with spaces allowed
-tags=python
+tags=python, adumanis, least square, block adjustment, itb, maski
 
-homepage=http://homepage
+
+homepage=https://github.com/putusatwika/adumanis_plugin
+
 category=Plugins
 icon=icon.png
 # experimental flag
-experimental=False
+experimental=True
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False

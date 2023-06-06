@@ -1,6 +1,7 @@
 # //ADUMANIS LIBRARY
 import math
 import numpy as np
+from qgis.core import QgsPointXY
 
 class TiePoints:
     def __init__(self):
@@ -142,5 +143,97 @@ def closestControl(tie, dataPoint):
             if (closest == -1 or closest > temp):
                 closest = temp
                 closestControl = control
-    
     return closestControl
+
+def checkSameNode(pointA, pointB, pointB2):
+        ax = round(pointA['x'],1)
+        ay = round(pointA['y'],1)
+        bx = round(pointB['x'],1)
+        by = round(pointB['y'],1)
+        bx2 = round(pointB2['x'],1)
+        by2 = round(pointB2['y'],1)
+        # print (ax, bx, bx2, ay, by, by2)
+        if (ax == bx) and (ay == by):
+            return True
+        else:
+            if (ax == bx2) and (ay == by2):
+                return True
+            else:
+                # print ("point A beda sama point B")
+                return False
+            
+def proj2(point, segment_start, segment_end):
+    # print ('Running projection ...')
+    # return distance, pointOnSegment
+    x1 = segment_start['x']
+    x2 = segment_end['x']
+    y1 = segment_start['y']
+    y2 = segment_end['y']
+    xp = point['x']
+    yp = point['y']
+    x12 = x2 - x1
+    y12 = y2 - y1
+    dotp = x12 * (xp - x1) + y12 * (yp - y1)
+    dot12 = x12 * x12 + y12 * y12
+    if dot12:
+        coeff = dotp / dot12
+        lx = x1 + x12 * coeff
+        ly = y1 + y12 * coeff
+        point = QgsPointXY(xp, yp)
+        pointOnSegment = QgsPointXY(lx, ly)
+        outPoint = [lx, ly]
+        distance = point.distance(pointOnSegment)
+        if ((lx >= x1 and lx <= x2) or (lx <= x1 and lx >= x2)) and ((ly >= y1 and ly <= y2) or (ly <= y1 and ly >= y2)) and (distance > 0):
+            return distance, outPoint
+        else:
+            return -1, 0
+    else:
+        # return None
+        return -1, 0
+
+def proj(point, segment_start, segment_end):
+    # print ('Running projection ...')
+    # return distance, pointOnSegment
+    x1 = segment_start[0]
+    x2 = segment_end[0]
+    y1 = segment_start[1]
+    y2 = segment_end[1]
+    xp = point[0]
+    yp = point[1]
+    x12 = x2 - x1
+    y12 = y2 - y1
+    dotp = x12 * (xp - x1) + y12 * (yp - y1)
+    dot12 = x12 * x12 + y12 * y12
+    if dot12:
+        coeff = dotp / dot12
+        lx = x1 + x12 * coeff
+        ly = y1 + y12 * coeff
+        pointToCheck = QgsPointXY(point[0], point[1])
+        pointOnSegment = QgsPointXY(lx, ly)
+        distance = pointToCheck.distance(pointOnSegment)
+        if ((lx >= x1 and lx <= x2) or (lx <= x1 and lx >= x2)) and ((ly >= y1 and ly <= y2) or (ly <= y1 and ly >= y2)) and (distance > 0):
+            return distance, pointOnSegment
+        else:
+            return -1, 0
+    else:
+        # return None
+        return -1, 0
+
+def merge(lsts):
+    sets = [set(lst) for lst in lsts if lst]
+    merged = True
+    while merged:
+        merged = False
+        results = []
+        while sets:
+            common, rest = sets[0], sets[1:]
+            sets = []
+            for x in rest:
+                if x.isdisjoint(common):
+                    sets.append(x)
+                else:
+                    merged = True
+                    common |= x
+            results.append(common)
+        sets = results
+    return sets

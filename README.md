@@ -1,5 +1,15 @@
-# Adumanis Plugin for Qgis 
-This ini adumanis plugin for QGIS to parcel block adjustment using least square.
-This plugin compatible with PyQGIS ver. ^3.+
+# Adumanis
+Parcel Block Adjusment
 
-For more information please check our paper or contact putusatwika@gmail.com
+## Description
+Plugin ini merupakan plugin untuk melakukan parcel block adjustment dengan metode least square. Aplikasi ini merupakan hasil kerjasama Institut Teknologi Bandung dengan Masyarakat Ahli Survey Kadastral Indonesia (MASKI) untuk melakukan perbaikan parcel tanah berdasarkan nilai toleransi tertentu. 
+
+## Spesification
+Plugin ini dibuat dengan Plugin Builder
+Plugin ini compatible untuk versi ^3.+
+
+For more information, see the PyQGIS Developer Cookbook at:
+http://www.qgis.org/pyqgis-cookbook/index.html
+Developer: putusatwika@gmail.com
+
+(C) 2011-2018 GeoApt LLC - geoapt.com

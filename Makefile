@@ -1,12 +1,12 @@
 #/***************************************************************************
 # adumanis
 #
-# adumanis
+# Parcel Block Adjustment
 #							 -------------------
-#		begin				: 2022-05-07
+#		begin				: 2023-04-09
 #		git sha				: $Format:%H$
-#		copyright			: (C) 2022 by Naufal Akbar
-#		email				: ufalakbar111@gmail.com
+#		copyright			: (C) 2023 by Institut Teknologi Bandung (ITB)
+#		email				: putusatwika@gmail.com
 # ***************************************************************************/
 #
 #/***************************************************************************
@@ -38,15 +38,15 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	adumanis.py adumanis_dialog2.py
+	adumanis_plugin.py adumanis_plugin_dialog.py
 
-PLUGINNAME = BPN Plugin
+PLUGINNAME = adumanis_plugin
 
 PY_FILES = \
 	__init__.py \
-	adumanis.py adumanis_dialog2.py
+	adumanis_plugin.py adumanis_plugin_dialog.py
 
-UI_FILES = adumanis_dialog_base.ui
+UI_FILES = adumanis_plugin_dialog_base.ui
 
 EXTRAS = metadata.txt icon.png
 
@@ -65,7 +65,7 @@ PEP8EXCLUDE=pydev,resources.py,conf.py,third_party,ui
 #	* Windows:
 #	  AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins'
 
-QGISDIR=C:\Users\HP\AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
+QGISDIR=C:\Users\Wika\AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
 
 #################################################
 # Normally you would not need to edit below here

@@ -1,5 +1,5 @@
 <RCC>
-    <qresource prefix="/plugins/adumanis" >
+    <qresource prefix="/plugins/adumanis_plugin" >
         <file>icon.png</file>
     </qresource>
 </RCC>
