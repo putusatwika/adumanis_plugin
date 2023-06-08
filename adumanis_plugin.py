@@ -221,12 +221,15 @@ class adumanis:
                 vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
             dataRawPersil.append(vertex)
         
+
+
+
         ## Progress FINISH @STEP 1
         barVal = barVal+steper
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
                 
-        # ## 2 
+        # ## @STEP 2 
         # ## READ CONTROL FILE
         controlIndex = self.dlg.controlCombox.currentIndex()
         controlLayer = layers[controlIndex].layer()
@@ -247,6 +250,13 @@ class adumanis:
                 stringPoint.append(stringCoor)
                 controlPoint.append(controlCoordinates[i])
         
+        if (len(controlPoint) < 3):
+            msg = str("Tidak dapat dilanjutkan, jumlah kontrol kurang!")
+            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            self.dlg.button_box.setEnabled(False)
+            return False;
+
+        
 
         ## Progress FINISH @STEP 2
         barVal = barVal+steper
@@ -254,7 +264,7 @@ class adumanis:
         self.dlg.progressBar.setValue(barVal)
 
 
-        # ## 3
+        # ## @STEP 3
         # ## PARSE BLOCK FILE COORDINATE TO PANDAS
         # ## save as dataframe pandas
         dataPersils = []
@@ -308,7 +318,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        # ## 3.1 
+        # ## @STEP 4 (3.1) 
         # ## CONTROL EVALUATION, 
         # ## just make sure to used control in bound for fastest process
         # ## find control point in bound -> controlPointBound
@@ -330,7 +340,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        # ## 4
+        # ## @STEP 5
         # ## NODE EVALUATION
         # ## just used node and eliminates other vertex
         dataNode = []
@@ -373,7 +383,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        # ## 5 
+        # ## @STEP 6 
         # ## FINDING PARAMETER
         ## # Finding Parameter
         ## num parcel, all node are control
@@ -409,7 +419,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        # ## 6
+        # ## @STEP 7
         # ## TIE POINT CREATOR
         # Create tie point for every control point for initialization
         tollerance = self.dlg.tollerance.value()
@@ -461,7 +471,9 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        ## MERGING TIE GROUPS
+
+        # ## @STEP 8
+        # ## MERGING TIE GROUPS
         cleanTieGroups = []
         tieIdxMerge = []
         aloneNode = []
@@ -497,6 +509,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
+        # ## @STEP 9
         ## # FIND TOTAL NODE NON CONTROL IN TIE POINT
         numTiePointWithControl = 0
         numNonControlNodeinTie = 0
@@ -511,7 +524,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        # ## 7
+        # ## @STEP 10
         # ## PARAMETER GENERATOR
         numTiePointNoControl = len(cleanTieGroups) - numTiePointWithControl
         numObs = int(numNonControlNodeinTie * 2)
@@ -544,7 +557,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
         
-        # ## 8.
+        # ## @STEP 11.
         # ## MATRIX CREATOR
         # ## pembuatan matrix
         if numParam > numObs:
@@ -619,7 +632,7 @@ class adumanis:
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
 
-        # ## 9.
+        # ## @STEP 12.
         # ## SOLVE THE MATRIX CALCULATION
         # ## solve the matrix with least square algorithm
         At = np.transpose(matrixA)
@@ -664,7 +677,7 @@ class adumanis:
         self.dlg.progressBar.setValue(barVal)
 
 
-        # ## 10.
+        # ## @STEP 13.
         # ## UPDATE TIE POINT
         # update all node in tie Point
         tieNumber = -1
@@ -723,8 +736,98 @@ class adumanis:
         barVal = barVal+steper
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
+
+
+        # ## @STEP 15.
+        # ## CREATE ERROR ELIPSE
+        tieNumber = -1
+        ellipsError = pd.DataFrame({
+            'x' : [],
+            'y' : [],
+            'sv' : [],
+            'su' : [],
+            't' : [],
+            'eX' : [],
+            'eY' : []
+        })
+        for (i, tie) in enumerate (cleanTieGroups):
+            ## update for node with matrix Calculation
+            if tie['control'].sum() == 0:
+                tieNumber = tieNumber + 1
+                Sne = Sxx[i+1,i]
+                Snn = Sxx[i,i]
+                See = Sxx[i+1, i+1]
+                penyebut = Snn - See
+                if (penyebut == 0):
+                    t = 0 # degree of ellipse
+                else:
+                    t = t = 0.5*(math.atan(2*Sne/(Snn-See))+180) # degree of ellipse.
+                
+                Suu = See*math.sin(t)*math.sin(t)+2*Sne*math.cos(t)*math.sin(t)+Snn*math.cos(t)*math.cos(t)
+                Svv = See*math.cos(t)*math.cos(t)-2*Sne*math.cos(t)*math.sin(t)+Snn*math.sin(t)*math.sin(t)
+                Su = math.sqrt(Suu)*2 # major axis (multiply by to 2 to get diameter)
+                Sv = math.sqrt(Svv)*2 # minor axis (multiply by to 2 to get diameter)
+                coorX = matrixX[tieNumber*2].item()
+                coorY = matrixX[tieNumber*2+1].item()
+                eX = math.sqrt(Snn)
+                eY = math.sqrt(See)
+                print(coorX, coorY, Sv, Su, t, eX, eY)
+                ellipsError.loc[tieNumber] = [coorX, coorY, Sv, Su, t, eX, eY]
+        # print (ellipsError)
+        # ## write new layer point for error ellipse:
+        nama_layer_valid = str(self.dlg.outputName.text())+"_error" 
+        uri ="Point?crs="+blockCRS
+        errorLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
+        errorLayer.dataProvider().addAttributes([
+            QgsField('id', QVariant.Int), 
+            QgsField('x', QVariant.Double),
+            QgsField('y', QVariant.Double),
+            QgsField('Sv', QVariant.Double),
+            QgsField('Su', QVariant.Double),
+            QgsField('t', QVariant.Double),
+            QgsField('eX', QVariant.Double),
+            QgsField('eY', QVariant.Double)
+            ])
+        errorLayer.updateFields()
+        errorLayer.startEditing()
+        features = []
+
+        print (type(ellipsError.loc[0,'t']))
+        for ef in range(len(ellipsError.index)):
+            feature = QgsFeature()
+            point = QgsGeometry.fromPointXY(QgsPointXY(ellipsError.loc[ef, 'x'], ellipsError.loc[ef,'y']))
+            feature.setGeometry(point)  # Add the coordinates of the point
+            feature.setAttributes([
+                ef,
+                ellipsError.loc[ef,'x'].item(),
+                ellipsError.loc[ef,'y'].item(),
+                ellipsError.loc[ef,'sv'].item(),
+                ellipsError.loc[ef,'su'].item(),
+                ellipsError.loc[ef,'t'].item(),
+                ellipsError.loc[ef,'eX'].item(),
+                ellipsError.loc[ef,'eY'].item(),
+            ])
+            features.append(feature)
+        errorLayer.dataProvider().addFeatures(features)
+        errorLayer.updateExtents()
+        errorLayer.commitChanges()
+        QgsProject.instance().addMapLayer(errorLayer)
+
+        # SAMPLE IF YOU WANT TO CREATE POINT
+            # features = []
+            # for i in range(10):
+            #     point = QgsGeometry.fromPointXY(QgsPointXY(i, i))
+            #     feature = QgsFeature()
+            #     feature.setGeometry(point)
+            #     feature.setAttributes([i, i * 2])
+            #     features.append(feature)
+            # outputLayer.dataProvider().addFeatures(features)
+            # outputLayer.updateExtents()
+
+        # ## PROGRESS FINISH @STEP 15
+
         
-        # ## 11.
+        # ## @STEP 14.
         # ## TRANSFORM NODE/VERTEX
         # ## transform node and vertex to new location after adjustment and error lambda
         for i in range (len(dataPersils)):
@@ -755,7 +858,7 @@ class adumanis:
         self.dlg.progressBar.setValue(barVal) 
 
 
-        # ## 12.
+        # ## @STEP 15.
         # ## SNAP TO SEGMENT PROCESS
         if (self.dlg.checkBox.isChecked()):
             ## Proses konversi ke pandas, dari data raw
@@ -987,6 +1090,7 @@ class adumanis:
             segment_update = segment_update.sort_values(by=["parcel", "urutan"]).reset_index(drop=True)
             # print (segment_update)
 
+            # ## @STEP 16A. SHOW ON CANVAS
             ## GENERATE PARCEL, map to canvas
             nama_layer_valid = str(self.dlg.outputName.text())
             uri ="MultiPolygon?crs="+blockCRS
@@ -1072,6 +1176,8 @@ class adumanis:
             outputLayerTemp.commitChanges()
             QgsProject.instance().addMapLayer(outputLayerTemp)
 
+            ## Progress FINISH @STEP 16A
+
         else:
         # ## 12. b if not segment process
         # ## OUT/SAVE RESULT
@@ -1087,46 +1193,7 @@ class adumanis:
                 QgsField('persil_name', QVariant.String)])
             outputLayer.updateFields()
 
-            # SAMPLE IF YOU WANT TO CREATE POINT
-            # features = []
-            # for i in range(10):
-            #     point = QgsGeometry.fromPointXY(QgsPointXY(i, i))
-            #     feature = QgsFeature()
-            #     feature.setGeometry(point)
-            #     feature.setAttributes([i, i * 2])
-            #     features.append(feature)
-            # outputLayer.dataProvider().addFeatures(features)
-            # outputLayer.updateExtents()
-
-            # polygon_points = [
-            #     [[327403.28, 735126.43],[327415.28, 735126.43],[327415.28, 735142.43],[327403.28, 735142.43]],
-            #     [[327393.28, 735116.43],[327405.28, 735116.43],[327405.28, 735132.43],[327393.28, 735132.43]]
-            #     ]
-
-            ## ---BEGIN ADD TO LAYER
-            # polygon_points = []
-            # for i in range (len(dataPersils)):
-            #     coordinatePoints = []
-            #     for j in range(len(dataPersils[i].index)):
-            #         temp = (dataPersils[i].loc[j,'x'], dataPersils[i].loc[j,'y'])
-            #         coordinatePoints.append(temp)
-            #     ## apend to begining point
-            #     coordinatePoints.append((dataPersils[i].loc[0,'x'], dataPersils[i].loc[0,'y']))
-            #     polygon_points.append(coordinatePoints)
-            
-            # feature = QgsFeature()
-            # parcel = [[[QgsPointXY(point[0],point[1]) for point in polygon ] for polygon in polygon_points ]]
-            # feature.setGeometry(QgsGeometry.fromMultiPolygonXY(parcel))
-            # feature.setAttributes([1, 'My Multipolygon'])
-
-            # Add feature to layer
-            # outputLayer.startEditing()
-            # outputLayer.addFeature(feature)
-            # outputLayer.commitChanges()
-            ## --- END ADD TO LAYER
-
-
-            
+            # ## @STEP 16B. SHOW ON CANVAS
             outputLayer.startEditing()
             for i in range (len(dataPersils)):
                 feature = QgsFeature()
@@ -1146,8 +1213,10 @@ class adumanis:
 
             # Add layer to the project and map view
             QgsProject.instance().addMapLayer(outputLayer)
+            
+            ## Progress FINISH @STEP 16B
 
-        ## Progress FINISH @STEP 15
+        ## Progress FINISH @STEP 15 and @STEP 16
         barVal = barVal+steper
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
@@ -1187,6 +1256,7 @@ class adumanis:
             self.dlg = adumanisDialog()
             self.dlg.button_box.accepted.connect(self.proses)
             self.dlg.button_box.rejected.connect(self.closeWindow)
+            
 
 
         # self.dlg.button_box.accepted.connect(self.bar)
