@@ -214,15 +214,17 @@ class adumanis:
         blockCRS = selectedLayer.crs().authid()
         filename = self.dlg.layerCombox.currentText()
         print ("Block filename:", filename)
+        source_attr = []
+        source_area = []
         for data in selectedLayer.getFeatures():
+            source_attr.append(data.attributes())
+            source_area.append(data.geometry().area())
             persil = data.geometry().asMultiPolygon()[0][0]
             vertex = []
             for i in range(len(persil)):
                 vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
             dataRawPersil.append(vertex)
-        
-
-
+    
 
         ## Progress FINISH @STEP 1
         barVal = barVal+steper
@@ -256,6 +258,7 @@ class adumanis:
             self.dlg.button_box.setEnabled(False)
             return False;
 
+        source_field = selectedLayer.fields().toList()
         
 
         ## Progress FINISH @STEP 2
@@ -771,7 +774,7 @@ class adumanis:
                 coorY = matrixX[tieNumber*2+1].item()
                 eX = math.sqrt(Snn)
                 eY = math.sqrt(See)
-                print(coorX, coorY, Sv, Su, t, eX, eY)
+                # print(coorX, coorY, Sv, Su, t, eX, eY)
                 ellipsError.loc[tieNumber] = [coorX, coorY, Sv, Su, t, eX, eY]
         # print (ellipsError)
         # ## write new layer point for error ellipse:
@@ -1095,21 +1098,30 @@ class adumanis:
             nama_layer_valid = str(self.dlg.outputName.text())
             uri ="MultiPolygon?crs="+blockCRS
             outputLayerTemp = QgsVectorLayer(uri, nama_layer_valid, "memory")
-            outputLayerTemp.dataProvider().addAttributes([
-                QgsField('no', QVariant.Int),
-                QgsField('ID', QVariant.String)
-            ])
+            source_field.append(QgsField('Luas Lama', QVariant.Double))
+            source_field.append(QgsField('Luas Baru', QVariant.Double))
+            source_field.append(QgsField('Selisih Luas(%)', QVariant.Double))
+            outputLayerTemp.dataProvider().addAttributes(source_field)
             outputLayerTemp.updateFields()
             outputLayerTemp.startEditing()
 
             coords = []
+            persil_idx = 0
             for j in range(row_data_parcels):
                 if data_parcels.loc[j,'urutan'] == 0:
                     if (len(coords) > 0 ):
                         polygon = QgsGeometry.fromPolygonXY( [[ QgsPointXY( pair[0], pair[1] ) for pair in coords ]] ) 
                         feature = QgsFeature()
                         feature.setGeometry(polygon)
-                        feature.setAttributes([data_parcels.loc[j, "parcel"].item(), "data"])
+
+                        attribute_to_add = source_attr[persil_idx]
+                        attribute_to_add.append(source_area[persil_idx])
+                        attribute_to_add.append(polygon.area())
+                        selisih_luas = (polygon.area() - source_area[persil_idx]) / source_area[persil_idx] * 100
+                        attribute_to_add.append(selisih_luas)
+                        feature.setAttributes(attribute_to_add)
+
+                        persil_idx = persil_idx + 1
                         outputLayerTemp.addFeature(feature)
                     coords.clear()
                     coords = []
@@ -1164,12 +1176,19 @@ class adumanis:
                     #         ])
 
                     
-                
+                ##
                 if j == row_data_parcels -1:
                     polygon = QgsGeometry.fromPolygonXY( [[ QgsPointXY( pair[0], pair[1] ) for pair in coords ]] ) 
                     feature = QgsFeature()
                     feature.setGeometry(polygon)
-                    feature.setAttributes([data_parcels.loc[j, "parcel"].item(), "data"])
+                    attribute_to_add = source_attr[persil_idx]
+                    attribute_to_add.append(source_area[persil_idx])
+                    attribute_to_add.append(polygon.area())
+                    selisih_luas = (polygon.area() - source_area[persil_idx]) / source_area[persil_idx] * 100
+                    attribute_to_add.append(selisih_luas)
+                    feature.setAttributes(attribute_to_add)
+
+                    persil_idx = persil_idx + 1
                     outputLayerTemp.addFeature(feature)
             
                 
@@ -1188,14 +1207,16 @@ class adumanis:
             
             uri ="MultiPolygon?crs="+blockCRS
             outputLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
-            outputLayer.dataProvider().addAttributes([
-                QgsField('id', QVariant.Int), 
-                QgsField('persil_name', QVariant.String)])
+            source_field.append(QgsField('Luas Lama', QVariant.Double))
+            source_field.append(QgsField('Luas Baru', QVariant.Double))
+            source_field.append(QgsField('Selisih Luas(%)', QVariant.Double))
+            outputLayer.dataProvider().addAttributes(source_field)
             outputLayer.updateFields()
 
             # ## @STEP 16B. SHOW ON CANVAS
             outputLayer.startEditing()
             for i in range (len(dataPersils)):
+            # for source_feature in selectedLayer.getFeatures():
                 feature = QgsFeature()
                 coordinatePoints = []
                 pointtoAdd = []
@@ -1206,8 +1227,15 @@ class adumanis:
                 coordinatePoints.append((dataPersils[i].loc[0,'x'], dataPersils[i].loc[0,'y']))
                 pointtoAdd.append(coordinatePoints)
                 parcel = [[[QgsPointXY(point[0],point[1]) for point in polygon ] for polygon in pointtoAdd ]]
-                feature.setGeometry(QgsGeometry.fromMultiPolygonXY(parcel))
-                feature.setAttributes([i, 'Parcel'+str(i)])
+                new_parcel_area = QgsGeometry.fromMultiPolygonXY(parcel)
+                feature.setGeometry(new_parcel_area)
+                attribute_to_add = source_attr[i]
+                attribute_to_add.append(source_area[i])
+                attribute_to_add.append(new_parcel_area.area())
+                selisih_luas = (new_parcel_area.area() - source_area[i]) / source_area[i] * 100
+                attribute_to_add.append(selisih_luas)
+                # feature.setAttributes(source_attr[i])
+                feature.setAttributes(attribute_to_add)
                 outputLayer.addFeature(feature)
             outputLayer.commitChanges()
 
