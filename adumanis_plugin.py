@@ -213,17 +213,26 @@ class adumanis:
         selectedLayer = layers[blockIndex].layer()
         blockCRS = selectedLayer.crs().authid()
         filename = self.dlg.layerCombox.currentText()
+        source_field = selectedLayer.fields().toList() ## used to create new polygon
         print ("Block filename:", filename)
         source_attr = []
         source_area = []
-        for data in selectedLayer.getFeatures():
-            source_attr.append(data.attributes())
-            source_area.append(data.geometry().area())
-            persil = data.geometry().asMultiPolygon()[0][0]
-            vertex = []
-            for i in range(len(persil)):
-                vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
-            dataRawPersil.append(vertex)
+        # dTypeLayer = selectedLayer.wkbType()
+        # sTypeLayer = QgsWkbTypes.displayString(dTypeLayer)
+        if selectedLayer.wkbType() == QgsWkbTypes.MultiPolygon or selectedLayer.wkbType() == QgsWkbTypes.MultiPolygonZ:
+            for data in selectedLayer.getFeatures():    
+                source_attr.append(data.attributes())
+                source_area.append(data.geometry().area())
+                persil = data.geometry().asMultiPolygon()[0][0]
+                vertex = []
+                for i in range(len(persil)):
+                    vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
+                dataRawPersil.append(vertex)
+        else:
+            msg = str("Tidak dapat dilanjutkan, data bidang bukan MultiPolygon!")
+            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            self.dlg.button_box.setEnabled(False)
+            return False
     
 
         ## Progress FINISH @STEP 1
@@ -238,29 +247,43 @@ class adumanis:
         controlCoordinates = []
         filename = self.dlg.controlCombox.currentText()
         print ("Control filename: ", filename)
-        for fetchData in controlLayer.getFeatures():
-            tmp = fetchData.geometry()
-            # tmp type <class 'qgis._core.QgsGeometry'> 
-            # convert to point <QgsGeometry: Point (x,y)>
-            controlCoordinates.append([tmp.asPoint().x(), tmp.asPoint().y()])
+        control_line = []
+        begin_points = []
+        control_points = []
+        ## Convert every line to variable begin_points and control_points
+        if controlLayer.wkbType() == QgsWkbTypes.MultiLineString:
+            for fetchData in controlLayer.getFeatures():
+                for parts in fetchData.geometry().asMultiPolyline():
+                    temp = []
+                    for part in parts:
+                        temp.append([round(part.x(),2), round(part.y(),2)])
+                    control_line.append(temp)
 
-        stringPoint = []
-        controlPoint = []
-        for i in range (len(controlCoordinates)):
-            stringCoor= str(controlCoordinates[i][0])+"-"+str(controlCoordinates[i][1])
-            if not (stringCoor in stringPoint):
-                stringPoint.append(stringCoor)
-                controlPoint.append(controlCoordinates[i])
-        
-        if (len(controlPoint) < 3):
+            for i in range(len(control_line)):
+                ## to make sure to used the begining and the last point on line 
+                ## if user click 3 times incidentally and makes 3 vertex on line
+                last_point = len(control_line[i])
+                begin_points.append(control_line[i][0])
+                control_points.append(control_line[i][last_point-1]) 
+
+        else:
+            msg = str("Tidak dapat dilanjutkan, tipe kontrol bukan MultiLineString!")
+            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            self.dlg.button_box.setEnabled(False)
+            return False
+
+
+        # print (begin_points)
+        # print ("=========")
+        # print (control_points)
+
+        if (len(control_points) < 3):
             msg = str("Tidak dapat dilanjutkan, jumlah kontrol kurang!")
             self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
             self.dlg.button_box.setEnabled(False)
-            return False;
+            return False
 
-        source_field = selectedLayer.fields().toList()
         
-
         ## Progress FINISH @STEP 2
         barVal = barVal+steper
         if barVal> 100: barVal = 100
@@ -273,7 +296,6 @@ class adumanis:
         dataPersils = []
         numParcels = len (dataRawPersil)
         totalPoint = 0
-        pointParcelControl = 0
         numNonControlPoint = 0
 
         boundMinX= dataRawPersil[0][0][0]
@@ -292,7 +314,6 @@ class adumanis:
                 'isGrouped': []
             })
             for q in range(len(parcelCoordinate)-1):
-                controlStatus = 0
                 totalPoint = totalPoint +1
 
                 coorX = parcelCoordinate[q][0]
@@ -307,13 +328,9 @@ class adumanis:
                 if (coorY < boundMinY):
                     boundMinY = coorY
 
-                stringCoor= str(coorX)+"-"+str(coorY)
-                if (stringCoor in stringPoint):
-                    controlStatus = 1
-                    pointParcelControl = pointParcelControl+1
-                else:
-                    numNonControlPoint = numNonControlPoint + 1
-                vertexCoordinate.loc[q] = [p,coorX, coorY, 0, controlStatus, 0]
+
+                numNonControlPoint = numNonControlPoint + 1
+                vertexCoordinate.loc[q] = [p,coorX, coorY, 0, 0, 0]
             dataPersils.append(vertexCoordinate)
         
         ## Progress FINISH @STEP 3
@@ -330,9 +347,9 @@ class adumanis:
         boundMinY = boundMinY - 10
         boundMaxY = boundMaxY + 10
         controlPointBound = []
-        for i in range(len(controlPoint)):
-            x = controlPoint[i][0]
-            y = controlPoint[i][1]
+        for i in range(len(control_points)):
+            x = control_points[i][0]
+            y = control_points[i][1]
             if (x > boundMinX and x < boundMaxX and y > boundMinY and y < boundMaxY):
                 controlPointBound.append([x,y])
                 # print (x,y)
@@ -402,20 +419,6 @@ class adumanis:
             else:
                 sequenceParcel.append(dataNode[i].loc[0,'parcel'])
 
-        ## Convert controlPoint to dataNode to evaluate in Tie Point
-        for p in range(len(controlPointBound)):
-            nodeCoordinate = pd.DataFrame({
-                'index': [],
-                "parcel": [],
-                'x': [],
-                'y': [],
-                'node': [],
-                'control': [],
-                'isGrouped': [],
-                'group': []
-            })
-            nodeCoordinate.loc[0] = [p, 'point', controlPointBound[p][0], controlPointBound[p][1], 1, 1, 0, 0]
-            dataNode.append(nodeCoordinate)
 
         ## Progress FINISH @STEP 6
         barVal = barVal+steper
@@ -457,13 +460,35 @@ class adumanis:
                         xB = pointB.loc[j, "x"]
                         yB = pointB.loc[j, "y"]
                         if (xB >= minX and xB <= maxX):
-                            if (yB > minY and yB <= maxY):
+                            if (yB >= minY and yB <= maxY):
                                 # print (persilA,i,"-", persilB,j, "-", groupIdx)
                                 tiePoint.loc[indexTie] = [pointB.loc[j, 'parcel'], pointB.loc[j,'index'], pointB.loc[j,'x'], pointB.loc[j,'y'], pointB.loc[j,'node'], pointB.loc[j,'control'], groupIdx]
                                 indexTie = indexTie+1               
                 tiePoint.loc[indexTie] = [pointA.loc[i, 'parcel'], pointA.loc[i,'index'], pointA.loc[i,'x'], pointA.loc[i,'y'], pointA.loc[i,'node'], pointA.loc[i,'control'], groupIdx]
                 tieGroups.append(tiePoint)
                 groupIdx = groupIdx +1                    
+
+        # print ("Raw Tie Group Terbentuk:",len(tieGroups))
+        # for i in range (len(tieGroups)):
+        #     print (tieGroups[i])
+        ## STEP 7+ 
+        ## evaluate every created tieGroups with control
+        for i in range(len(tieGroups)):
+            # print (tieGroups[i])
+            for (j, row) in tieGroups[i].iterrows():
+                controlStatus = 0
+                idx_control = 0
+                for k in range(len(begin_points)):
+                    ppX = round(row['x'],2)
+                    ppY = round(row['y'],2)
+                    cpX = begin_points[k][0]
+                    cpY = begin_points[k][1]
+                    if  ppX == cpX and ppY == cpY:
+                        controlStatus = 1
+                        idx_control = k
+                if controlStatus == 1:
+                    ## tambahkan tie point berupa titik kontrol di tie point tersebut
+                    tieGroups[i].loc[len(tieGroups[i].index)] = ['point', 1, control_points[idx_control][0], control_points[idx_control][1], 1,1,0]
 
         # print ("Raw Tie Group Terbentuk:",len(tieGroups))
         # for i in range (len(tieGroups)):
@@ -480,7 +505,7 @@ class adumanis:
         cleanTieGroups = []
         tieIdxMerge = []
         aloneNode = []
-        for i in range (len(tieGroups)-1):
+        for i in range (len(tieGroups)):
             if i not in tieIdxMerge:
                 theMerge = tieGroups[i]
                 for idxI in range (len(tieGroups[i].index)): 
@@ -511,6 +536,7 @@ class adumanis:
         barVal = barVal+steper
         if barVal> 100: barVal = 100
         self.dlg.progressBar.setValue(barVal)
+
 
         # ## @STEP 9
         ## # FIND TOTAL NODE NON CONTROL IN TIE POINT
@@ -544,7 +570,6 @@ class adumanis:
         if (numNodeParcelControl == 0):
             print("Warning! Seluruh titik pada bidang dijadiakn pengamatan/observasi")
         self.dlg.logOutput.appendPlainText ("Total vertext/node pada block "+str(totalPoint))
-        self.dlg.logOutput.appendPlainText ("Jumlah titik kontrol pada Bidang: "+str(pointParcelControl))
         self.dlg.logOutput.appendPlainText ("Jumlah vertex/node bukan kontrol: "+str(numNonControlPoint))
         self.dlg.logOutput.appendPlainText ("Jumlah NODE bukan kontrol: "+str(numNonControlNode))
         self.dlg.logOutput.appendPlainText ("Jumlah parcel (Node) kontrol: "+str(numNodeParcelControl))
@@ -661,6 +686,8 @@ class adumanis:
         for i in range(len(Sxx)):
             data = math.sqrt(Sxx[i,i])
             SdSxx.append(data)
+        
+        print (matrixX)
 
         # # EXPORT MATRIX TO EXCEL
         # da = pd.DataFrame(Qxx)
@@ -741,7 +768,7 @@ class adumanis:
         self.dlg.progressBar.setValue(barVal)
 
 
-        # ## @STEP 15.
+        # ## @STEP 14a.
         # ## CREATE ERROR ELIPSE
         tieNumber = -1
         ellipsError = pd.DataFrame({
@@ -1258,8 +1285,8 @@ class adumanis:
         del dataRawPersil
         del vertex
         del controlCoordinates
-        del stringPoint 
-        del controlPoint 
+        del begin_points
+        del control_points 
         del dataPersils
         del controlPointBound
         del dataNode
