@@ -24,7 +24,7 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QDialog
-from qgis.core import QgsProject, Qgis, QgsFeatureSink, QgsMultiPolygon, QgsVectorLayer, QgsField, QgsWkbTypes, QgsGeometry, QgsFeature, QgsPointXY
+from qgis.core import QgsProject, Qgis, QgsFeatureSink, QgsMultiPolygon, QgsVectorLayer, QgsField, QgsWkbTypes, QgsGeometry, QgsFeature, QgsPointXY, QgsMapLayerProxyModel
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 
 # Initialize Qt resources from file resources.py
@@ -38,6 +38,8 @@ import sys
 import math
 import time
 import os
+import processing
+
 
 from .adumanis_lib import Euclidean
 from .adumanis_lib import nodeEvaluation
@@ -200,10 +202,22 @@ class adumanis:
         self.dlg.close()
        
     def proses(self):
+        error_signal = False
         dataRawPersil_all = []
-        layers = QgsProject.instance().layerTreeRoot().children()
+        # layers = QgsProject.instance().layerTreeRoot().children()
+        layers = QgsProject.instance().mapLayers()
+        layer_idx = []
+        layer_name = []
+        for idx, layer in layers.items():
+            layer_idx.append(idx)
+            layer_name.append(layer.name())
+
+        
         blockIndex = self.dlg.layerCombox.currentIndex()
-        selectedLayer = layers[blockIndex].layer()
+        # selectedLayer = layers[blockIndex].layer()
+        selectedLayer = QgsProject.instance().mapLayer(layer_idx[blockIndex])
+        # print ("data di proses:",layer_name[blockIndex])
+        # print ("data index di proses:",layer_idx[blockIndex])
         blockCRS = selectedLayer.crs().authid()
         filename = self.dlg.layerCombox.currentText()
         source_field = selectedLayer.fields().toList() ## used to create new polygon
@@ -239,6 +253,7 @@ class adumanis:
         else:
             msg = str("Tidak dapat dilanjutkan, layer yang akan diadumanis bukan MultiPolygon!")
             self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            error_signal = True
             return False
 
         ## Check if there is attribute BlockId in persil raw data
@@ -250,6 +265,7 @@ class adumanis:
         if not attr_block_status:
             msg = str("Tidak dapat dilanjutkan, tidak terdapat atribut BlockId, silakan proses tahap sebelumnya!")
             self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            error_signal = True
             return False
 
         # print (source_attr_blockid)
@@ -262,10 +278,13 @@ class adumanis:
         # ## @STEP 2 
         # ## READ CONTROL FILE
         controlIndex = self.dlg.controlCombox.currentIndex()
-        controlLayer = layers[controlIndex].layer()
+        controlLayer = QgsProject.instance().mapLayer(layer_idx[controlIndex])
+        # controlLayer = layers[controlIndex].layer()
         controlCoordinates = []
         filename = self.dlg.controlCombox.currentText()
-        print ("Control filename: ", filename)
+        # print ("Control di proses:",layer_name[controlIndex])
+        # print ("Control index di proses:",layer_idx[controlIndex])
+        # print ("Control filename: ", filename)
         control_line = []
         begin_points = []
         control_points = []
@@ -286,9 +305,12 @@ class adumanis:
                 control_points.append(control_line[i][last_point-1]) 
 
         else:
+            sTypeLayer = QgsWkbTypes.displayString(controlLayer.wkbType())
+            print ("Tipedata:", sTypeLayer)
             msg = str("Tidak dapat dilanjutkan, tipe kontrol bukan MultiLineString!")
             self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
-            self.dlg.button_box.setEnabled(False)
+            # self.dlg.button_box.setEnabled(False)
+            error_signal = True
             return False
 
         # print (begin_points)
@@ -299,6 +321,7 @@ class adumanis:
             msg = str("Tidak dapat dilanjutkan, jumlah kontrol kurang!")
             self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
             self.dlg.button_box.setEnabled(False)
+            error_signal = True
             return False
 
         ## Progress FINISH @STEP 2
@@ -326,6 +349,7 @@ class adumanis:
                     source_attr.append(source_attr_all[bi_j])
 
 
+            print (dataRawPersil)
             # ## @STEP 3
             # ## PARSE BLOCK FILE COORDINATE TO PANDAS
             # ## save as dataframe pandas
@@ -369,6 +393,10 @@ class adumanis:
                     vertexCoordinate.loc[q] = [p,coorX, coorY, 0, 0, 0]
                 dataPersils.append(vertexCoordinate)
             
+            # print ("Data persils after step3 calculation")
+            # print (dataPersils)
+            # print ("=====================================")
+
             ## Progress FINISH @STEP 3
             barVal = barVal+steper
             if barVal> 100: barVal = 100
@@ -633,7 +661,9 @@ class adumanis:
                 self.dlg.logOutput.appendPlainText ("Parameter: "+str(numParam)+ ", Observasi: "+str(numObs))
                 msg = str("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
                 self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning, duration=5)
+                error_signal = True
                 # return False
+
                 break
                 
 
@@ -789,7 +819,11 @@ class adumanis:
                         dataPersils[parcelNum].loc[index, 'x'] = a*x - b*y + c
                         dataPersils[parcelNum].loc[index, 'y'] = b*x + a*y + d
             
+            # print ("Data persils after matrix calculation")
             # print (dataPersils)
+            # print ("=====================================")
+
+
             ## Progress FINISH @STEP 13
             barVal = barVal+steper
             if barVal> 100: barVal = 100
@@ -833,7 +867,7 @@ class adumanis:
                     ellipsError.loc[tieNumber] = [coorX, coorY, Sv, Su, t, eX, eY]
             # print (ellipsError)
             # ## write new layer point for error ellipse:
-            nama_layer_valid = str(self.dlg.outputName.text()+"_errorblok_"+str(bi_i))
+            nama_layer_valid = str(self.dlg.outputName.text()+"_point_error_block"+str(bi_i))
             uri ="Point?crs="+blockCRS
             errorLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
             errorLayer.dataProvider().addAttributes([
@@ -890,6 +924,7 @@ class adumanis:
             # ## @STEP 14.
             # ## TRANSFORM NODE/VERTEX
             # ## transform node and vertex to new location after adjustment and error lambda
+            
             for i in range (len(dataPersils)):
                 if (i in sequenceParcel):
                     ## find a, b, c, d in matrix X
@@ -911,6 +946,7 @@ class adumanis:
                                 dataPersils[i].loc[j,'y'] = b*dataPersils[i].loc[j,'x'] + a*dataPersils[i].loc[j,'y'] + d
             # print ("Data persils after matrix calculation")
             # print (dataPersils)
+            # print ("=====================================")
 
             ## Progress FINISH @STEP 14
             barVal = barVal+steper
@@ -1253,16 +1289,28 @@ class adumanis:
                 # QgsProject.instance().addMapLayer(outputLayer)
                 QgsProject.instance().addMapLayer(outputLayer, False)    #False is the key
                 groupLayer.addLayer(outputLayer)
-                
-
+                output_name = str("memory:"+self.dlg.outputName.text()+"_area_error_block"+str(bi_i))
+                try:
+                    result = processing.run("native:centroids", 
+                        {'INPUT':outputLayer,
+                        'ALL_PARTS':False,'OUTPUT': output_name})
+                    QgsProject.instance().addMapLayer(result['OUTPUT'],False)
+                    groupLayer.addLayer(result['OUTPUT'])
+                except:
+                    msg = str("Parcel input tidak valid! Lakukan tahap validity checking")
+                    self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Critical, duration=5)
+                    self.dlg.logOutput.appendPlainText ("Block "+str(bi_i)+" tidak dapat diadumanis karena parcel tidak valid!")
+                    error_signal = True
+                    return False
+                    
                 ## Progress FINISH @STEP 16A
 
             else:
-            # ## 12. b if not segment process
-            # ## OUT/SAVE RESULT
-            # ## create persil result after calculation
-            # print ("WKBTYPE:",selectedLayer.wkbType())
-            # print ("QGISmultipoly: ", QgsWkbTypes.MultiPolygon)
+                # ## 12. b if not segment process
+                # ## OUT/SAVE RESULT
+                # ## create persil result after calculation
+                # print ("WKBTYPE:",selectedLayer.wkbType())
+                # print ("QGISmultipoly: ", QgsWkbTypes.MultiPolygon)
             
                 # ## @STEP 16B. SHOW ON CANVAS
                 nama_layer_valid = str(self.dlg.outputName.text()+"_blok_"+str(bi_i))
@@ -1275,6 +1323,7 @@ class adumanis:
                 outputLayer.updateFields()
                 outputLayer.startEditing()
 
+                print (dataPersils)
                 for i in range (len(dataPersils)):
                 # for source_feature in selectedLayer.getFeatures():
                     feature = QgsFeature()
@@ -1300,8 +1349,24 @@ class adumanis:
                 outputLayer.commitChanges()
                 # Add layer to the project and map view
                 # QgsProject.instance().addMapLayer(outputLayer)
+
                 QgsProject.instance().addMapLayer(outputLayer, False)    #False is the key
                 groupLayer.addLayer(outputLayer)
+                ## CREATE CENTROID
+                output_name = str("memory:"+self.dlg.outputName.text()+"_area_error_block"+str(bi_i))
+                try:
+                    result = processing.run("native:centroids", 
+                        {'INPUT':outputLayer,
+                        'ALL_PARTS':False,'OUTPUT': output_name})
+                    QgsProject.instance().addMapLayer(result['OUTPUT'], False)
+                    groupLayer.addLayer(result['OUTPUT'])
+                except:
+                    msg = str("Parcel input tidak valid! Lakukan tahap validity checking...")
+                    self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Critical, duration=5)
+                    self.dlg.logOutput.appendPlainText ("Block "+str(bi_i)+" tidak dapat diadumanis karena parcel tidak valid!")
+                    error_signal = True
+                    return False
+                    
                 
                 ## Progress FINISH @STEP 16B
 
@@ -1329,14 +1394,10 @@ class adumanis:
         del cleanTieGroups 
         del tieIdxMerge 
         del aloneNode 
-        del SdSxx
-        del Qxx
-        del AtA
-        del AtF
-        del At
 
-        msg = str("Proses Adumanis telah selesai!")
-        self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Success)
+        if not error_signal:
+            msg = str("Proses Adumanis telah selesai!")
+            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Success)
 
     def run(self):
         """Run method that performs all the real work"""
@@ -1351,13 +1412,18 @@ class adumanis:
             
 
 
-        # self.dlg.button_box.accepted.connect(self.bar)
-        layers = QgsProject.instance().layerTreeRoot().children()
+        # self.dlg.button_box.accepted.connect(self.bar)        
+        # layers = QgsProject.instance().layerTreeRoot().children()
+        layers = QgsProject.instance().mapLayers()
+
+
         self.dlg.layerCombox.clear()
-        self.dlg.layerCombox.addItems([layer.name() for layer in layers])
+        # self.dlg.layerCombox.addItems([layer.name() for layer in layers])
+        self.dlg.layerCombox.addItems([layer.name() for idx, layer in layers.items()])
 
         self.dlg.controlCombox.clear()
-        self.dlg.controlCombox.addItems([layer.name() for layer in layers])
+        # self.dlg.controlCombox.addItems([layer.name() for layer in layers])
+        self.dlg.controlCombox.addItems([layer.name() for idx, layer in layers.items()])
         self.dlg.logOutput.clear()
         self.dlg.tabWidget.setCurrentIndex(0)
 
