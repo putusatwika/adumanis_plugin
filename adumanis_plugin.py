@@ -45,6 +45,7 @@ from .adumanis_lib import closestControl
 from .adumanis_lib import checkSameNode
 from .adumanis_lib import proj
 from .adumanis_lib import merge
+from .adumanis_lib import uniqueList
 
 class adumanis:
     """QGIS Plugin Implementation."""
@@ -197,17 +198,9 @@ class adumanis:
         print ("Close window!")
         self.dlg.progressBar.setValue(0)
         self.dlg.close()
-    
-    
-
+       
     def proses(self):
-        # ## MESSAGE OUT:        
-        ## INISIALISASI OUTPUT PROGRESSBAR
-        step = 15
-        steper = math.ceil(100/step)
-        barVal = 0
-
-        dataRawPersil = []
+        dataRawPersil_all = []
         layers = QgsProject.instance().layerTreeRoot().children()
         blockIndex = self.dlg.layerCombox.currentIndex()
         selectedLayer = layers[blockIndex].layer()
@@ -215,31 +208,57 @@ class adumanis:
         filename = self.dlg.layerCombox.currentText()
         source_field = selectedLayer.fields().toList() ## used to create new polygon
         print ("Block filename:", filename)
-        source_attr = []
-        source_area = []
+        source_attr_all = []
+        source_attr_blockid = []
+        source_area_all = []
         # dTypeLayer = selectedLayer.wkbType()
         # sTypeLayer = QgsWkbTypes.displayString(dTypeLayer)
-        if selectedLayer.wkbType() == QgsWkbTypes.MultiPolygon or selectedLayer.wkbType() == QgsWkbTypes.MultiPolygonZ:
-            for data in selectedLayer.getFeatures():    
-                source_attr.append(data.attributes())
-                source_area.append(data.geometry().area())
-                persil = data.geometry().asMultiPolygon()[0][0]
-                vertex = []
-                for i in range(len(persil)):
-                    vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
-                dataRawPersil.append(vertex)
-        else:
-            msg = str("Tidak dapat dilanjutkan, data bidang bukan MultiPolygon!")
-            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
-            self.dlg.button_box.setEnabled(False)
-            return False
-    
 
+        
+        if selectedLayer.wkbType() == QgsWkbTypes.MultiPolygon or selectedLayer.wkbType() == QgsWkbTypes.MultiPolygonZ:
+            if  self.dlg.userSelect.isChecked():
+                for data in selectedLayer.selectedFeatures():    
+                    source_attr_all.append(data.attributes())
+                    source_attr_blockid.append(data['BlockId'])
+                    source_area_all.append(data.geometry().area())
+                    persil = data.geometry().asMultiPolygon()[0][0]
+                    vertex = []
+                    for i in range(len(persil)):
+                        vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
+                    dataRawPersil_all.append(vertex)
+            else:
+                for data in selectedLayer.getFeatures():    
+                    source_attr_all.append(data.attributes())
+                    source_attr_blockid.append(data['BlockId'])
+                    source_area_all.append(data.geometry().area())
+                    persil = data.geometry().asMultiPolygon()[0][0]
+                    vertex = []
+                    for i in range(len(persil)):
+                        vertex.append([round(persil[i].x(),4), round(persil[i].y(),4)])
+                    dataRawPersil_all.append(vertex)
+        else:
+            msg = str("Tidak dapat dilanjutkan, layer yang akan diadumanis bukan MultiPolygon!")
+            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            return False
+
+        ## Check if there is attribute BlockId in persil raw data
+        attr_block_status = False
+        for i in range(len(source_field)):
+            if source_field[i].name() == "BlockId":
+                attr_block_status = True
+        
+        if not attr_block_status:
+            msg = str("Tidak dapat dilanjutkan, tidak terdapat atribut BlockId, silakan proses tahap sebelumnya!")
+            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning)
+            return False
+
+        # print (source_attr_blockid)
+        # print (uniqueList(source_attr_blockid))
+        
         ## Progress FINISH @STEP 1
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+        self.dlg.progressBar.setValue(5)
                 
+        
         # ## @STEP 2 
         # ## READ CONTROL FILE
         controlIndex = self.dlg.controlCombox.currentIndex()
@@ -256,7 +275,7 @@ class adumanis:
                 for parts in fetchData.geometry().asMultiPolyline():
                     temp = []
                     for part in parts:
-                        temp.append([round(part.x(),2), round(part.y(),2)])
+                        temp.append([round(part.x(),1), round(part.y(),1)])
                     control_line.append(temp)
 
             for i in range(len(control_line)):
@@ -272,7 +291,6 @@ class adumanis:
             self.dlg.button_box.setEnabled(False)
             return False
 
-
         # print (begin_points)
         # print ("=========")
         # print (control_points)
@@ -283,864 +301,943 @@ class adumanis:
             self.dlg.button_box.setEnabled(False)
             return False
 
-        
         ## Progress FINISH @STEP 2
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
-
-
-        # ## @STEP 3
-        # ## PARSE BLOCK FILE COORDINATE TO PANDAS
-        # ## save as dataframe pandas
-        dataPersils = []
-        numParcels = len (dataRawPersil)
-        totalPoint = 0
-        numNonControlPoint = 0
-
-        boundMinX= dataRawPersil[0][0][0]
-        boundMinY= dataRawPersil[0][0][1]
-        boundMaxX= dataRawPersil[0][0][0]
-        boundMaxY= dataRawPersil[0][0][1]
-
-        for p in range (numParcels):
-            parcelCoordinate = dataRawPersil[p]
-            vertexCoordinate = pd.DataFrame({
-                "parcel": [],
-                'x': [],
-                'y': [],
-                'node': [],
-                'control': [],
-                'isGrouped': []
-            })
-            for q in range(len(parcelCoordinate)-1):
-                totalPoint = totalPoint +1
-
-                coorX = parcelCoordinate[q][0]
-                coorY = parcelCoordinate[q][1]
-                ## bounding block
-                if (coorX > boundMaxX):
-                    boundMaxX = coorX
-                if (coorX < boundMinX):
-                    boundMinX = coorX
-                if (coorY > boundMaxY):
-                    boundMaxY = coorY
-                if (coorY < boundMinY):
-                    boundMinY = coorY
-
-
-                numNonControlPoint = numNonControlPoint + 1
-                vertexCoordinate.loc[q] = [p,coorX, coorY, 0, 0, 0]
-            dataPersils.append(vertexCoordinate)
+        self.dlg.progressBar.setValue(10)
         
-        ## Progress FINISH @STEP 3
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+        
+        # ## =========================== ADUMANIS BEGIN EACH BLOCK HERE ===========================
+        # ## create group layer
+        root = QgsProject.instance().layerTreeRoot()
+        groupLayer = root.addGroup(self.dlg.outputName.text())
+        
+        # ## INISIALISASI OUTPUT PROGRESSBAR
+        distinct_blockid = uniqueList(source_attr_blockid)
+        step = 13 * len(distinct_blockid)
+        steper = math.ceil(90/step)
+        barVal = 10
+        for bi_i in range(len(distinct_blockid)):
+            dataRawPersil = []
+            source_area = []
+            source_attr = []
+            for bi_j in range(len(source_attr_blockid)):
+                if source_attr_blockid[bi_j] == distinct_blockid[bi_i]:
+                    dataRawPersil.append(dataRawPersil_all[bi_j])
+                    source_area.append(source_area_all[bi_j])
+                    source_attr.append(source_attr_all[bi_j])
 
-        # ## @STEP 4 (3.1) 
-        # ## CONTROL EVALUATION, 
-        # ## just make sure to used control in bound for fastest process
-        # ## find control point in bound -> controlPointBound
-        boundMinX = boundMinX - 10
-        boundMaxX = boundMaxX + 10
-        boundMinY = boundMinY - 10
-        boundMaxY = boundMaxY + 10
-        controlPointBound = []
-        for i in range(len(control_points)):
-            x = control_points[i][0]
-            y = control_points[i][1]
-            if (x > boundMinX and x < boundMaxX and y > boundMinY and y < boundMaxY):
-                controlPointBound.append([x,y])
-                # print (x,y)
+
+            # ## @STEP 3
+            # ## PARSE BLOCK FILE COORDINATE TO PANDAS
+            # ## save as dataframe pandas
+            dataPersils = []
+            numParcels = len (dataRawPersil)
+            totalPoint = 0
+            numNonControlPoint = 0
+
+            boundMinX= dataRawPersil[0][0][0]
+            boundMinY= dataRawPersil[0][0][1]
+            boundMaxX= dataRawPersil[0][0][0]
+            boundMaxY= dataRawPersil[0][0][1]
+
+            for p in range (numParcels):
+                parcelCoordinate = dataRawPersil[p]
+                vertexCoordinate = pd.DataFrame({
+                    "parcel": [],
+                    'x': [],
+                    'y': [],
+                    'node': [],
+                    'control': [],
+                    'isGrouped': []
+                })
+                for q in range(len(parcelCoordinate)-1):
+                    totalPoint = totalPoint +1
+
+                    coorX = parcelCoordinate[q][0]
+                    coorY = parcelCoordinate[q][1]
+                    ## bounding block
+                    if (coorX > boundMaxX):
+                        boundMaxX = coorX
+                    if (coorX < boundMinX):
+                        boundMinX = coorX
+                    if (coorY > boundMaxY):
+                        boundMaxY = coorY
+                    if (coorY < boundMinY):
+                        boundMinY = coorY
 
 
-        ## Progress FINISH @STEP 4
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+                    numNonControlPoint = numNonControlPoint + 1
+                    vertexCoordinate.loc[q] = [p,coorX, coorY, 0, 0, 0]
+                dataPersils.append(vertexCoordinate)
+            
+            ## Progress FINISH @STEP 3
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
 
-        # ## @STEP 5
-        # ## NODE EVALUATION
-        # ## just used node and eliminates other vertex
-        dataNode = []
-        numNonControlNode = 0
-        for p in range (numParcels):
-            nodeCoordinate = pd.DataFrame({
-                "parcel": [],
-                'x': [],
-                'y': [],
-                'node': [],
-                'control': [],
-                'isGrouped': [],
-                'group': []
-            })
-            lenPoint = len(dataPersils[p])
-            for q in range(lenPoint):
-                currPoint = [dataPersils[p].loc[q,"x"], dataPersils[p].loc[q,"y"]]
-                controlStatus = dataPersils[p].loc[q,'control']
-                if q == 0:
-                    prevPoint = [dataPersils[p].loc[lenPoint-1,"x"],dataPersils[p].loc[lenPoint-1,"y"]]
-                    nextPoint = [dataPersils[p].loc[q+1,"x"],dataPersils[p].loc[q+1,"y"]]
-                elif q == (lenPoint -1):
-                    prevPoint = [dataPersils[p].loc[q-1,"x"],dataPersils[p].loc[q-1,"y"]]
-                    nextPoint = [dataPersils[p].loc[0,"x"],dataPersils[p].loc[0,"y"]]
+            # ## @STEP 4 (3.1) 
+            # ## CONTROL EVALUATION, 
+            # ## just make sure to used control in bound for fastest process
+            # ## find control point in bound -> controlPointBound
+            boundMinX = boundMinX - 10
+            boundMaxX = boundMaxX + 10
+            boundMinY = boundMinY - 10
+            boundMaxY = boundMaxY + 10
+            controlPointBound = []
+            for i in range(len(control_points)):
+                x = control_points[i][0]
+                y = control_points[i][1]
+                if (x > boundMinX and x < boundMaxX and y > boundMinY and y < boundMaxY):
+                    controlPointBound.append([x,y])
+                    # print (x,y)
+
+
+            ## Progress FINISH @STEP 4
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+            # ## @STEP 5
+            # ## NODE EVALUATION
+            # ## just used node and eliminates other vertex
+            dataNode = []
+            numNonControlNode = 0
+            for p in range (numParcels):
+                nodeCoordinate = pd.DataFrame({
+                    "parcel": [],
+                    'x': [],
+                    'y': [],
+                    'node': [],
+                    'control': [],
+                    'isGrouped': [],
+                    'group': []
+                })
+                lenPoint = len(dataPersils[p])
+                for q in range(lenPoint):
+                    currPoint = [dataPersils[p].loc[q,"x"], dataPersils[p].loc[q,"y"]]
+                    controlStatus = dataPersils[p].loc[q,'control']
+                    if q == 0:
+                        prevPoint = [dataPersils[p].loc[lenPoint-1,"x"],dataPersils[p].loc[lenPoint-1,"y"]]
+                        nextPoint = [dataPersils[p].loc[q+1,"x"],dataPersils[p].loc[q+1,"y"]]
+                    elif q == (lenPoint -1):
+                        prevPoint = [dataPersils[p].loc[q-1,"x"],dataPersils[p].loc[q-1,"y"]]
+                        nextPoint = [dataPersils[p].loc[0,"x"],dataPersils[p].loc[0,"y"]]
+                    else:
+                        prevPoint = [dataPersils[p].loc[q-1,"x"],dataPersils[p].loc[q-1,"y"]]
+                        nextPoint = [dataPersils[p].loc[q+1,"x"],dataPersils[p].loc[q+1,"y"]]
+                    if(nodeEvaluation(prevPoint, nextPoint, currPoint)):
+                        dataPersils[p].loc[q, "node"] = 1
+                        ## Abaikan titik kontrol pada bidang
+                        nodeCoordinate.loc[q] = [p, currPoint[0], currPoint[1], 1, 0, 0, 0]
+                        # nodeCoordinate.loc[q] = [p, currPoint[0], currPoint[1], 1, controlStatus, 0, 0]
+                        if controlStatus == 0:
+                            numNonControlNode = numNonControlNode+1
+                nodeCoordinate.reset_index(inplace=True) ## reset index without delete real index
+                dataNode.append(nodeCoordinate)
+
+            # print (dataNode)
+
+            ## Progress FINISH @STEP 5
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+            # ## @STEP 6 
+            # ## FINDING PARAMETER
+            ## # Finding Parameter
+            ## num parcel, all node are control
+            numNodeParcel = len(dataNode)
+            numNodeParcelControl = 0
+            ## Untuk membuat urutan index node parcel
+            sequenceParcel = []
+            for i in range (numNodeParcel):
+                numPoint = len(dataNode[i].index)
+                numControl = dataNode[i]['control'].sum()
+                if (numPoint == numControl):
+                    numNodeParcelControl = numNodeParcelControl+1
                 else:
-                    prevPoint = [dataPersils[p].loc[q-1,"x"],dataPersils[p].loc[q-1,"y"]]
-                    nextPoint = [dataPersils[p].loc[q+1,"x"],dataPersils[p].loc[q+1,"y"]]
-                if(nodeEvaluation(prevPoint, nextPoint, currPoint)):
-                    dataPersils[p].loc[q, "node"] = 1
-                    ## Abaikan titik kontrol pada bidang
-                    nodeCoordinate.loc[q] = [p, currPoint[0], currPoint[1], 1, 0, 0, 0]
-                    # nodeCoordinate.loc[q] = [p, currPoint[0], currPoint[1], 1, controlStatus, 0, 0]
-                    if controlStatus == 0:
-                        numNonControlNode = numNonControlNode+1
-            nodeCoordinate.reset_index(inplace=True) ## reset index without delete real index
-            dataNode.append(nodeCoordinate)
-
-        ## Progress FINISH @STEP 5
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
-
-        # ## @STEP 6 
-        # ## FINDING PARAMETER
-        ## # Finding Parameter
-        ## num parcel, all node are control
-        numNodeParcel = len(dataNode)
-        numNodeParcelControl = 0
-        ## Untuk membuat urutan index node parcel
-        sequenceParcel = []
-        for i in range (numNodeParcel):
-            numPoint = len(dataNode[i].index)
-            numControl = dataNode[i]['control'].sum()
-            if (numPoint == numControl):
-                numNodeParcelControl = numNodeParcelControl+1
-            else:
-                sequenceParcel.append(dataNode[i].loc[0,'parcel'])
+                    sequenceParcel.append(dataNode[i].loc[0,'parcel'])
 
 
-        ## Progress FINISH @STEP 6
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+            ## Progress FINISH @STEP 6
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
 
-        # ## @STEP 7
-        # ## TIE POINT CREATOR
-        # Create tie point for every control point for initialization
-        tollerance = self.dlg.tollerance.value()
+            # ## @STEP 7
+            # ## TIE POINT CREATOR
+            # Create tie point for every control point for initialization
+            tollerance = self.dlg.tollerance.value()
 
-        tieGroups = []
-        tieGroups.clear()
+            tieGroups = []
+            tieGroups.clear()
 
-        groupIdx = 0
-        for persilA in range (len(dataNode)):
-            pointA = dataNode[persilA]
-            for i in range (len(pointA.index)):
-                tiePoint = pd.DataFrame(
-                    {
-                        'parcel': [],
-                        'idx': [],
-                        'x': [],
-                        'y': [],
-                        'node': [],
-                        'control': [],
-                        'group': []        
-                    }
-                )
-                minX = pointA.loc[i,'x'] - tollerance
-                minY = pointA.loc[i,'y'] - tollerance
-                maxX = pointA.loc[i,'x'] + tollerance
-                maxY = pointA.loc[i,'y'] + tollerance
+            groupIdx = 0
+            for persilA in range (len(dataNode)):
+                pointA = dataNode[persilA]
+                for i in range (len(pointA.index)):
+                    tiePoint = pd.DataFrame(
+                        {
+                            'parcel': [],
+                            'idx': [],
+                            'x': [],
+                            'y': [],
+                            'node': [],
+                            'control': [],
+                            'group': []        
+                        }
+                    )
+                    minX = pointA.loc[i,'x'] - tollerance
+                    minY = pointA.loc[i,'y'] - tollerance
+                    maxX = pointA.loc[i,'x'] + tollerance
+                    maxY = pointA.loc[i,'y'] + tollerance
+                    
+                    indexTie = 0
+                    for persilB in range (persilA+1, len(dataNode)):
+                        pointB = dataNode[persilB]
+                        for j in range(len(pointB.index)):
+                            xB = pointB.loc[j, "x"]
+                            yB = pointB.loc[j, "y"]
+                            if (xB >= minX and xB <= maxX):
+                                if (yB >= minY and yB <= maxY):
+                                    # print (persilA,i,"-", persilB,j, "-", groupIdx)
+                                    tiePoint.loc[indexTie] = [pointB.loc[j, 'parcel'], pointB.loc[j,'index'], pointB.loc[j,'x'], pointB.loc[j,'y'], pointB.loc[j,'node'], pointB.loc[j,'control'], groupIdx]
+                                    indexTie = indexTie+1               
+                    tiePoint.loc[indexTie] = [pointA.loc[i, 'parcel'], pointA.loc[i,'index'], pointA.loc[i,'x'], pointA.loc[i,'y'], pointA.loc[i,'node'], pointA.loc[i,'control'], groupIdx]
+                    tieGroups.append(tiePoint)
+                    groupIdx = groupIdx +1                    
+
+            # print ("Raw Tie Group Terbentuk:",len(tieGroups))
+            # for i in range (len(tieGroups)):
+            #     print (tieGroups[i])
+            ## STEP 7+ 
+            ## evaluate every created tieGroups with control
+            for i in range(len(tieGroups)):
+                # print (tieGroups[i])
+                for (j, row) in tieGroups[i].iterrows():
+                    controlStatus = 0
+                    idx_control = 0
+                    for k in range(len(begin_points)):
+                        ppX = round(row['x'],1)
+                        ppY = round(row['y'],1)
+                        cpX = begin_points[k][0]
+                        cpY = begin_points[k][1]
+                        if  ppX == cpX and ppY == cpY:
+                            controlStatus = 1
+                            idx_control = k
+                    if controlStatus == 1:
+                        ## tambahkan tie point berupa titik kontrol di tie point tersebut
+                        tieGroups[i].loc[len(tieGroups[i].index)] = ['point', 1, control_points[idx_control][0], control_points[idx_control][1], 1,1,0]
+
+            # print ("Raw Tie Group Terbentuk:",len(tieGroups))
+            # for i in range (len(tieGroups)):
+            #     print (tieGroups[i])
+
+            ## Progress FINISH @STEP 7
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+
+            # ## @STEP 8
+            # ## MERGING TIE GROUPS
+            cleanTieGroups = []
+            tieIdxMerge = []
+            aloneNode = []
+            for i in range (len(tieGroups)):
+                if i not in tieIdxMerge:
+                    theMerge = tieGroups[i]
+                    for idxI in range (len(tieGroups[i].index)): 
+                        mergeStatus = 0
+                        for j in range (i+1, len(tieGroups)):
+                            if (j not in tieIdxMerge):
+                                for idxJ in range(len(tieGroups[j].index)):
+                                    if tieGroups[i].loc[idxI,'parcel'] != 'point' or tieGroups[j].loc[idxJ,'parcel']!='point':
+                                        if tieGroups[i].loc[idxI,'parcel'] == tieGroups[j].loc[idxJ,'parcel'] and tieGroups[i].loc[idxI,'idx'] == tieGroups[j].loc[idxJ,'idx']:
+                                            theMerge = pd.concat([theMerge, tieGroups[j]], ignore_index = True)
+                                            tieIdxMerge.append(j)
+                                            mergeStatus = 1
+                                    if mergeStatus == 1:
+                                        break    
+                    
+                    if (len(theMerge.index)>1):   
+                        ## CLEANING MERGE
+                        theCleanMerge = theMerge.drop_duplicates(subset=['parcel', 'idx'], ignore_index=True)
+                        cleanTieGroups.append(theCleanMerge)
+                    elif(len(theMerge.index)==1):
+                        aloneNode.append(theMerge)
+
+            # print ("Tie Group Terbentuk:",len(cleanTieGroups))
+            # for i in range (len(cleanTieGroups)):
+            #     print (cleanTieGroups[i])
+
+            ## Progress FINISH @STEP 8
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+
+            # ## @STEP 9
+            ## # FIND TOTAL NODE NON CONTROL IN TIE POINT
+            numTiePointWithControl = 0
+            numNonControlNodeinTie = 0
+            for i in range (len(cleanTieGroups)):
+                temp = len(cleanTieGroups[i].index) - cleanTieGroups[i]['control'].sum()
+                numNonControlNodeinTie = numNonControlNodeinTie + temp
+                if (cleanTieGroups[i]['control'].sum() > 0):
+                    numTiePointWithControl = numTiePointWithControl + 1
+
+            ## Progress FINISH @STEP 9
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+            # ## @STEP 10
+            # ## PARAMETER GENERATOR
+            numTiePointNoControl = len(cleanTieGroups) - numTiePointWithControl
+            numObs = int(numNonControlNodeinTie * 2)
+            numParam = (4* (numNodeParcel - numNodeParcelControl)) + (2 * numTiePointNoControl)
+
+            
+            
+            # ## CHECK POINT
+            # ## Check point 1- 6
+            # for i in range(len(dataNode)):
+            #     print (dataNode[i])
+
+            # ## Put to log:
+            if (numNodeParcelControl == 0):
+                print("Warning! Seluruh titik pada bidang dijadiakn pengamatan/observasi")
+            self.dlg.logOutput.appendPlainText ("Total vertext/node pada block "+str(totalPoint))
+            self.dlg.logOutput.appendPlainText ("Jumlah vertex/node bukan kontrol: "+str(numNonControlPoint))
+            self.dlg.logOutput.appendPlainText ("Jumlah NODE bukan kontrol: "+str(numNonControlNode))
+            self.dlg.logOutput.appendPlainText ("Jumlah parcel (Node) kontrol: "+str(numNodeParcelControl))
+            self.dlg.logOutput.appendPlainText ("Jumlah seluruh parcel: "+str(numParcels))
+            self.dlg.logOutput.appendPlainText ("Jumlah parcel (Node): "+str(numNodeParcel))
+            self.dlg.logOutput.appendPlainText ("Jumlah tie point dengan kontrol: "+str(numTiePointWithControl))
+            self.dlg.logOutput.appendPlainText ("Jumlah Node berpasangan "+str(numNonControlNodeinTie))
+            self.dlg.logOutput.appendPlainText ("Jumlah Observasi: "+str(numObs))
+            self.dlg.logOutput.appendPlainText ("Jumlah Parameter: "+str(numParam))
+
+            ## Progress FINISH @STEP 10
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+            
+            # ## @STEP 11.
+            # ## MATRIX CREATOR
+            # ## pembuatan matrix
+            if numParam > numObs:
+                # print ("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
+                # print ("Parameter: ", numParam, " Observasi: ", numObs)
+                self.dlg.logOutput.appendPlainText ("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
+                self.dlg.logOutput.appendPlainText ("Parameter: "+str(numParam)+ ", Observasi: "+str(numObs))
+                msg = str("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
+                self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning, duration=5)
+                # return False
+                break
                 
-                indexTie = 0
-                for persilB in range (persilA+1, len(dataNode)):
-                    pointB = dataNode[persilB]
-                    for j in range(len(pointB.index)):
-                        xB = pointB.loc[j, "x"]
-                        yB = pointB.loc[j, "y"]
-                        if (xB >= minX and xB <= maxX):
-                            if (yB >= minY and yB <= maxY):
-                                # print (persilA,i,"-", persilB,j, "-", groupIdx)
-                                tiePoint.loc[indexTie] = [pointB.loc[j, 'parcel'], pointB.loc[j,'index'], pointB.loc[j,'x'], pointB.loc[j,'y'], pointB.loc[j,'node'], pointB.loc[j,'control'], groupIdx]
-                                indexTie = indexTie+1               
-                tiePoint.loc[indexTie] = [pointA.loc[i, 'parcel'], pointA.loc[i,'index'], pointA.loc[i,'x'], pointA.loc[i,'y'], pointA.loc[i,'node'], pointA.loc[i,'control'], groupIdx]
-                tieGroups.append(tiePoint)
-                groupIdx = groupIdx +1                    
 
-        # print ("Raw Tie Group Terbentuk:",len(tieGroups))
-        # for i in range (len(tieGroups)):
-        #     print (tieGroups[i])
-        ## STEP 7+ 
-        ## evaluate every created tieGroups with control
-        for i in range(len(tieGroups)):
-            # print (tieGroups[i])
-            for (j, row) in tieGroups[i].iterrows():
-                controlStatus = 0
-                idx_control = 0
-                for k in range(len(begin_points)):
-                    ppX = round(row['x'],2)
-                    ppY = round(row['y'],2)
-                    cpX = begin_points[k][0]
-                    cpY = begin_points[k][1]
-                    if  ppX == cpX and ppY == cpY:
-                        controlStatus = 1
-                        idx_control = k
-                if controlStatus == 1:
-                    ## tambahkan tie point berupa titik kontrol di tie point tersebut
-                    tieGroups[i].loc[len(tieGroups[i].index)] = ['point', 1, control_points[idx_control][0], control_points[idx_control][1], 1,1,0]
+            matrixA = np.zeros((numObs, numParam))
+            matrixF = np.zeros((numObs,1))
 
-        # print ("Raw Tie Group Terbentuk:",len(tieGroups))
-        # for i in range (len(tieGroups)):
-        #     print (tieGroups[i])
+            row = -1
+            col = -1
+            colPersilStart = numTiePointNoControl*2
 
-        ## Progress FINISH @STEP 7
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+            for (i, tie) in enumerate (cleanTieGroups):
+                # print (tie)
+                tieWithControl = tie['control'].sum()
+                if (tieWithControl == 0):
+                    col = col +1
+                for j in range(len(tie.index)):
+                    point = tie.loc[j]
+                    # print (point['parcel'], point['idx'])
+                    if (point.loc['control'] == 0): # not a control
+                        row = row +1
+                        idxPersil = sequenceParcel.index(point['parcel'])
+                        matrixA[2*row, colPersilStart + 4*idxPersil] = point['x']
+                        matrixA[2*row, colPersilStart + 4*idxPersil +1] = point['y'] * -1
+                        matrixA[2*row, colPersilStart + 4*idxPersil +2] = 1
+                        matrixA[2*row, colPersilStart + 4*idxPersil +3] = 0
 
+                        matrixA[2*row +1, colPersilStart + 4*idxPersil] = point['y']
+                        matrixA[2*row +1, colPersilStart + 4*idxPersil +1] = point['x']
+                        matrixA[2*row +1, colPersilStart + 4*idxPersil +2] = 0
+                        matrixA[2*row +1, colPersilStart + 4*idxPersil +3] = 1
+                    
+                        if (tieWithControl):
+                            [x,y] = closestControl(tie, point)
+                            # print (x, y)
+                            matrixF[2*row, 0] = x
+                            matrixF[2*row+1, 0] = y
+                        else:
+                            matrixA[2*row, 2*col] = -1
+                            matrixA[2*row+1, 2*col+1] = -1
 
-        # ## @STEP 8
-        # ## MERGING TIE GROUPS
-        cleanTieGroups = []
-        tieIdxMerge = []
-        aloneNode = []
-        for i in range (len(tieGroups)):
-            if i not in tieIdxMerge:
-                theMerge = tieGroups[i]
-                for idxI in range (len(tieGroups[i].index)): 
-                    mergeStatus = 0
-                    for j in range (i+1, len(tieGroups)):
-                        if (j not in tieIdxMerge):
-                            for idxJ in range(len(tieGroups[j].index)):
-                                if tieGroups[i].loc[idxI,'parcel'] != 'point' or tieGroups[j].loc[idxJ,'parcel']!='point':
-                                    if tieGroups[i].loc[idxI,'parcel'] == tieGroups[j].loc[idxJ,'parcel'] and tieGroups[i].loc[idxI,'idx'] == tieGroups[j].loc[idxJ,'idx']:
-                                        theMerge = pd.concat([theMerge, tieGroups[j]], ignore_index = True)
-                                        tieIdxMerge.append(j)
-                                        mergeStatus = 1
-                                if mergeStatus == 1:
-                                    break    
-                
-                if (len(theMerge.index)>1):   
-                    ## CLEANING MERGE
-                    theCleanMerge = theMerge.drop_duplicates(subset=['parcel', 'idx'], ignore_index=True)
-                    cleanTieGroups.append(theCleanMerge)
-                elif(len(theMerge.index)==1):
-                    aloneNode.append(theMerge)
+            # ## # DEBUG
+            # ## # EXPORT MATRIX TO EXCEL
+            # da = pd.DataFrame(matrixA)
+            # df = pd.DataFrame(matrixF)
+            # with pd.ExcelWriter("MatrixAF.xlsx") as writer:
+            #     da.to_excel(writer, sheet_name='MatrixA')
+            #     df.to_excel(writer, sheet_name='MatrixF')
 
-        # print ("Tie Group Terbentuk:",len(cleanTieGroups))
-        # for i in range (len(cleanTieGroups)):
-        #     print (cleanTieGroups[i])
+            ## Progress FINISH @STEP 11
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
 
-        ## Progress FINISH @STEP 8
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+            # ## @STEP 12.
+            # ## SOLVE THE MATRIX CALCULATION
+            # ## solve the matrix with least square algorithm
+            At = np.transpose(matrixA)
+            AtA = np.dot(np.mat(At), np.mat(matrixA))
+            AtF = np.dot(np.mat(At), np.mat(matrixF))
 
+            matrixX = np.linalg.solve(AtA, AtF)
 
-        # ## @STEP 9
-        ## # FIND TOTAL NODE NON CONTROL IN TIE POINT
-        numTiePointWithControl = 0
-        numNonControlNodeinTie = 0
-        for i in range (len(cleanTieGroups)):
-            temp = len(cleanTieGroups[i].index) - cleanTieGroups[i]['control'].sum()
-            numNonControlNodeinTie = numNonControlNodeinTie + temp
-            if (cleanTieGroups[i]['control'].sum() > 0):
-                numTiePointWithControl = numTiePointWithControl + 1
+            V = np.dot(np.mat(matrixA), np.mat(matrixX)) - np.mat(matrixF)
+            # print("Matriks Residu = ", V)
 
-        ## Progress FINISH @STEP 9
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
-
-        # ## @STEP 10
-        # ## PARAMETER GENERATOR
-        numTiePointNoControl = len(cleanTieGroups) - numTiePointWithControl
-        numObs = int(numNonControlNodeinTie * 2)
-        numParam = (4* (numNodeParcel - numNodeParcelControl)) + (2 * numTiePointNoControl)
-
-        
-        
-        # ## CHECK POINT
-        # ## Check point 1- 6
-        # for i in range(len(dataNode)):
-        #     print (dataNode[i])
-
-        # ## Put to log:
-        if (numNodeParcelControl == 0):
-            print("Warning! Seluruh titik pada bidang dijadiakn pengamatan/observasi")
-        self.dlg.logOutput.appendPlainText ("Total vertext/node pada block "+str(totalPoint))
-        self.dlg.logOutput.appendPlainText ("Jumlah vertex/node bukan kontrol: "+str(numNonControlPoint))
-        self.dlg.logOutput.appendPlainText ("Jumlah NODE bukan kontrol: "+str(numNonControlNode))
-        self.dlg.logOutput.appendPlainText ("Jumlah parcel (Node) kontrol: "+str(numNodeParcelControl))
-        self.dlg.logOutput.appendPlainText ("Jumlah seluruh parcel: "+str(numParcels))
-        self.dlg.logOutput.appendPlainText ("Jumlah parcel (Node): "+str(numNodeParcel))
-        self.dlg.logOutput.appendPlainText ("Jumlah tie point dengan kontrol: "+str(numTiePointWithControl))
-        self.dlg.logOutput.appendPlainText ("Jumlah Node berpasangan "+str(numNonControlNodeinTie))
-        self.dlg.logOutput.appendPlainText ("Jumlah Observasi: "+str(numObs))
-        self.dlg.logOutput.appendPlainText ("Jumlah Parameter: "+str(numParam))
-
-        ## Progress FINISH @STEP 10
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
-        
-        # ## @STEP 11.
-        # ## MATRIX CREATOR
-        # ## pembuatan matrix
-        if numParam > numObs:
-            # print ("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
-            # print ("Parameter: ", numParam, " Observasi: ", numObs)
-            self.dlg.logOutput.appendPlainText ("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
-            self.dlg.logOutput.appendPlainText ("Parameter: "+str(numParam)+ ", Observasi: "+str(numObs))
-            msg = str("Tidak bisa dilanjutkan, parameter lebih banyak  atau sama dengan titik yang diobservasi")
-            self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Warning, duration=5)
-            del dataRawPersil
-            del vertex
-            del controlCoordinates
-            del stringPoint 
-            del controlPoint 
-            del dataPersils
-            del controlPointBound
-            del dataNode
-            del sequenceParcel
-            del tieGroups
-            del cleanTieGroups 
-            del tieIdxMerge 
-            return False
+            dof = (numObs - numParam)
+            Var = np.dot(np.transpose(V), np.mat(V)) / dof
+            # print("Variansi A-posteriori = ", Var.item())
+            self.dlg.logOutput.appendPlainText ("Variansi A-posteriori: "+str(Var.item()))
             
 
-        matrixA = np.zeros((numObs, numParam))
-        matrixF = np.zeros((numObs,1))
+            Qxx = np.linalg.inv(AtA)
+            Sxx = abs(Var.item() * Qxx)
 
-        row = -1
-        col = -1
-        colPersilStart = numTiePointNoControl*2
+            ## #find standar deviation of Sxx.
+            SdSxx = []
+            for i in range(len(Sxx)):
+                data = math.sqrt(Sxx[i,i])
+                SdSxx.append(data)
+            
+            # print (matrixX)
 
-        for (i, tie) in enumerate (cleanTieGroups):
-            # print (tie)
-            tieWithControl = tie['control'].sum()
-            if (tieWithControl == 0):
-                col = col +1
-            for j in range(len(tie.index)):
-                point = tie.loc[j]
-                # print (point['parcel'], point['idx'])
-                if (point.loc['control'] == 0): # not a control
-                    row = row +1
-                    idxPersil = sequenceParcel.index(point['parcel'])
-                    matrixA[2*row, colPersilStart + 4*idxPersil] = point['x']
-                    matrixA[2*row, colPersilStart + 4*idxPersil +1] = point['y'] * -1
-                    matrixA[2*row, colPersilStart + 4*idxPersil +2] = 1
-                    matrixA[2*row, colPersilStart + 4*idxPersil +3] = 0
+            # # EXPORT MATRIX TO EXCEL
+            # da = pd.DataFrame(Qxx)
+            # df = pd.DataFrame(Sxx)
+            # dsx = pd.DataFrame(np.mat(SdSxx))
+            # dx = pd.DataFrame(matrixX)
 
-                    matrixA[2*row +1, colPersilStart + 4*idxPersil] = point['y']
-                    matrixA[2*row +1, colPersilStart + 4*idxPersil +1] = point['x']
-                    matrixA[2*row +1, colPersilStart + 4*idxPersil +2] = 0
-                    matrixA[2*row +1, colPersilStart + 4*idxPersil +3] = 1
-                
-                    if (tieWithControl):
-                        [x,y] = closestControl(tie, point)
-                        # print (x, y)
-                        matrixF[2*row, 0] = x
-                        matrixF[2*row+1, 0] = y
+            # with pd.ExcelWriter("MatrixQSX.xlsx") as writer:
+            #     da.to_excel(writer, sheet_name='Qsxx')
+            #     df.to_excel(writer, sheet_name='Sxx')
+            #     dsx.to_excel(writer, sheet_name="SdSxx")
+            #     dx.to_excel(writer, sheet_name = "MatrixX")
+
+            ## Progress FINISH @STEP 12
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+
+            # ## @STEP 13.
+            # ## UPDATE TIE POINT
+            # update all node in tie Point
+            tieNumber = -1
+            for (i, tie) in enumerate (cleanTieGroups):
+                ## update for node with matrix Calculation
+                if tie['control'].sum() == 0:
+                    tieNumber = tieNumber + 1
+                    for j in range (len(tie.index)):
+                        parcelNum = int(tie.loc[j,'parcel'])
+                        index = int (tie.loc[j,'idx'])
+                        dataPersils[parcelNum].loc[index,'x'] = matrixX[tieNumber*2]
+                        dataPersils[parcelNum].loc[index,'y'] = matrixX[tieNumber*2+1]
+                ## update for node with caculation of parameter
+                # if tie['control'].sum() == 0:
+                #     for j in range (len(tie.index)):
+                #         parcelNum = int(tie.loc[j,'parcel'])
+                #         index = int (tie.loc[j,'idx'])
+                #         loc = sequenceParcel.index(parcelNum) * 4
+                #         a = matrixX[colPersilStart + loc]
+                #         b = matrixX[colPersilStart + loc + 1]
+                #         c = matrixX[colPersilStart + loc + 2]
+                #         d = matrixX[colPersilStart + loc + 3]
+                #         x = tie.loc[j, 'x']
+                #         y = tie.loc[j, 'y']
+                #         dataPersils[parcelNum].loc[index, 'x'] = a*x - b*y + c
+                #         dataPersils[parcelNum].loc[index, 'y'] = b*x + a*y + d
+                elif tie['control'].sum() > 0:
+                    for j in range (len(tie.index)):
+                        point = tie.loc[j]
+                        if (point['control']==0):
+                            parcelNum = int(point['parcel'])
+                            index = int (point['idx'])
+                            [controlX, controlY] = closestControl(tie, point)
+                            dataPersils[parcelNum].loc[index,'x'] = controlX
+                            dataPersils[parcelNum].loc[index,'y'] = controlY
+            
+            # ## update all alone node, without tie point
+            for i in range (len(aloneNode)):
+                if (aloneNode[i].loc[0,'control']==0 and dataNode[i].loc[0,'node']==1):
+                    parcel = aloneNode[i].loc[0,'parcel']
+                    if (parcel !='point'):
+                        parcelNum = int (parcel)
+                        index = int (aloneNode[i].loc[0,'idx'])
+                        ##transform based on a,b,c,d in matrix X
+                        loc = sequenceParcel.index(parcelNum) * 4
+                        a = matrixX[colPersilStart + loc]
+                        b = matrixX[colPersilStart + loc + 1]
+                        c = matrixX[colPersilStart + loc + 2]
+                        d = matrixX[colPersilStart + loc + 3]
+                        x = aloneNode[i].loc[0, 'x']
+                        y = aloneNode[i].loc[0, 'y']
+                        dataPersils[parcelNum].loc[index, 'x'] = a*x - b*y + c
+                        dataPersils[parcelNum].loc[index, 'y'] = b*x + a*y + d
+            
+            # print (dataPersils)
+            ## Progress FINISH @STEP 13
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
+
+
+            # ## @STEP 14a.
+            # ## CREATE ERROR ELIPSE
+            tieNumber = -1
+            ellipsError = pd.DataFrame({
+                'x' : [],
+                'y' : [],
+                'sv' : [],
+                'su' : [],
+                't' : [],
+                'eX' : [],
+                'eY' : []
+            })
+            for (i, tie) in enumerate (cleanTieGroups):
+                ## update for node with matrix Calculation
+                if tie['control'].sum() == 0:
+                    tieNumber = tieNumber + 1
+                    Sne = Sxx[i+1,i]
+                    Snn = Sxx[i,i]
+                    See = Sxx[i+1, i+1]
+                    penyebut = Snn - See
+                    if (penyebut == 0):
+                        t = 0 # degree of ellipse
                     else:
-                        matrixA[2*row, 2*col] = -1
-                        matrixA[2*row+1, 2*col+1] = -1
+                        t = t = 0.5*(math.atan(2*Sne/(Snn-See))+180) # degree of ellipse.
+                    
+                    Suu = See*math.sin(t)*math.sin(t)+2*Sne*math.cos(t)*math.sin(t)+Snn*math.cos(t)*math.cos(t)
+                    Svv = See*math.cos(t)*math.cos(t)-2*Sne*math.cos(t)*math.sin(t)+Snn*math.sin(t)*math.sin(t)
+                    Su = math.sqrt(Suu)*2 # major axis (multiply by to 2 to get diameter)
+                    Sv = math.sqrt(Svv)*2 # minor axis (multiply by to 2 to get diameter)
+                    coorX = matrixX[tieNumber*2].item()
+                    coorY = matrixX[tieNumber*2+1].item()
+                    eX = math.sqrt(Snn)
+                    eY = math.sqrt(See)
+                    # print(coorX, coorY, Sv, Su, t, eX, eY)
+                    ellipsError.loc[tieNumber] = [coorX, coorY, Sv, Su, t, eX, eY]
+            # print (ellipsError)
+            # ## write new layer point for error ellipse:
+            nama_layer_valid = str(self.dlg.outputName.text()+"_errorblok_"+str(bi_i))
+            uri ="Point?crs="+blockCRS
+            errorLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
+            errorLayer.dataProvider().addAttributes([
+                QgsField('id', QVariant.Int), 
+                QgsField('x', QVariant.Double),
+                QgsField('y', QVariant.Double),
+                QgsField('Sv', QVariant.Double),
+                QgsField('Su', QVariant.Double),
+                QgsField('t', QVariant.Double),
+                QgsField('eX', QVariant.Double),
+                QgsField('eY', QVariant.Double)
+                ])
+            errorLayer.updateFields()
+            errorLayer.startEditing()
+            features = []
 
-        # ## # DEBUG
-        # ## # EXPORT MATRIX TO EXCEL
-        # da = pd.DataFrame(matrixA)
-        # df = pd.DataFrame(matrixF)
-        # with pd.ExcelWriter("MatrixAF.xlsx") as writer:
-        #     da.to_excel(writer, sheet_name='MatrixA')
-        #     df.to_excel(writer, sheet_name='MatrixF')
+            # print (type(ellipsError.loc[0,'t']))
+            for ef in range(len(ellipsError.index)):
+                feature = QgsFeature()
+                point = QgsGeometry.fromPointXY(QgsPointXY(ellipsError.loc[ef, 'x'], ellipsError.loc[ef,'y']))
+                feature.setGeometry(point)  # Add the coordinates of the point
+                feature.setAttributes([
+                    ef,
+                    ellipsError.loc[ef,'x'].item(),
+                    ellipsError.loc[ef,'y'].item(),
+                    ellipsError.loc[ef,'sv'].item(),
+                    ellipsError.loc[ef,'su'].item(),
+                    ellipsError.loc[ef,'t'].item(),
+                    ellipsError.loc[ef,'eX'].item(),
+                    ellipsError.loc[ef,'eY'].item(),
+                ])
+                features.append(feature)
+            errorLayer.dataProvider().addFeatures(features)
+            errorLayer.updateExtents()
+            errorLayer.commitChanges()
+            # QgsProject.instance().addMapLayer(errorLayer)
+            QgsProject.instance().addMapLayer(errorLayer, False)    #False is the key
+            groupLayer.addLayer(errorLayer)
 
-        ## Progress FINISH @STEP 11
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+            # SAMPLE IF YOU WANT TO CREATE POINT
+                # features = []
+                # for i in range(10):
+                #     point = QgsGeometry.fromPointXY(QgsPointXY(i, i))
+                #     feature = QgsFeature()
+                #     feature.setGeometry(point)
+                #     feature.setAttributes([i, i * 2])
+                #     features.append(feature)
+                # outputLayer.dataProvider().addFeatures(features)
+                # outputLayer.updateExtents()
 
-        # ## @STEP 12.
-        # ## SOLVE THE MATRIX CALCULATION
-        # ## solve the matrix with least square algorithm
-        At = np.transpose(matrixA)
-        AtA = np.dot(np.mat(At), np.mat(matrixA))
-        AtF = np.dot(np.mat(At), np.mat(matrixF))
+            # ## PROGRESS FINISH @STEP 15
 
-        matrixX = np.linalg.solve(AtA, AtF)
-
-        V = np.dot(np.mat(matrixA), np.mat(matrixX)) - np.mat(matrixF)
-        # print("Matriks Residu = ", V)
-
-        dof = (numObs - numParam)
-        Var = np.dot(np.transpose(V), np.mat(V)) / dof
-        # print("Variansi A-posteriori = ", Var.item())
-        self.dlg.logOutput.appendPlainText ("Variansi A-posteriori: "+str(Var.item()))
-        
-
-        Qxx = np.linalg.inv(AtA)
-        Sxx = abs(Var.item() * Qxx)
-
-        ## #find standar deviation of Sxx.
-        SdSxx = []
-        for i in range(len(Sxx)):
-            data = math.sqrt(Sxx[i,i])
-            SdSxx.append(data)
-        
-        print (matrixX)
-
-        # # EXPORT MATRIX TO EXCEL
-        # da = pd.DataFrame(Qxx)
-        # df = pd.DataFrame(Sxx)
-        # dsx = pd.DataFrame(np.mat(SdSxx))
-        # dx = pd.DataFrame(matrixX)
-
-        # with pd.ExcelWriter("MatrixQSX.xlsx") as writer:
-        #     da.to_excel(writer, sheet_name='Qsxx')
-        #     df.to_excel(writer, sheet_name='Sxx')
-        #     dsx.to_excel(writer, sheet_name="SdSxx")
-        #     dx.to_excel(writer, sheet_name = "MatrixX")
-
-        ## Progress FINISH @STEP 12
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
-
-
-        # ## @STEP 13.
-        # ## UPDATE TIE POINT
-        # update all node in tie Point
-        tieNumber = -1
-        for (i, tie) in enumerate (cleanTieGroups):
-            ## update for node with matrix Calculation
-            if tie['control'].sum() == 0:
-                tieNumber = tieNumber + 1
-                for j in range (len(tie.index)):
-                    parcelNum = int(tie.loc[j,'parcel'])
-                    index = int (tie.loc[j,'idx'])
-                    dataPersils[parcelNum].loc[index,'x'] = matrixX[tieNumber*2]
-                    dataPersils[parcelNum].loc[index,'y'] = matrixX[tieNumber*2+1]
-            ## update for node with caculation of parameter
-            # if tie['control'].sum() == 0:
-            #     for j in range (len(tie.index)):
-            #         parcelNum = int(tie.loc[j,'parcel'])
-            #         index = int (tie.loc[j,'idx'])
-            #         loc = sequenceParcel.index(parcelNum) * 4
-            #         a = matrixX[colPersilStart + loc]
-            #         b = matrixX[colPersilStart + loc + 1]
-            #         c = matrixX[colPersilStart + loc + 2]
-            #         d = matrixX[colPersilStart + loc + 3]
-            #         x = tie.loc[j, 'x']
-            #         y = tie.loc[j, 'y']
-            #         dataPersils[parcelNum].loc[index, 'x'] = a*x - b*y + c
-            #         dataPersils[parcelNum].loc[index, 'y'] = b*x + a*y + d
-            elif tie['control'].sum() > 0:
-                for j in range (len(tie.index)):
-                    point = tie.loc[j]
-                    if (point['control']==0):
-                        parcelNum = int(point['parcel'])
-                        index = int (point['idx'])
-                        [controlX, controlY] = closestControl(tie, point)
-                        dataPersils[parcelNum].loc[index,'x'] = controlX
-                        dataPersils[parcelNum].loc[index,'y'] = controlY
-        
-        # ## update all alone node, without tie point
-        for i in range (len(aloneNode)):
-            if (aloneNode[i].loc[0,'control']==0 and dataNode[i].loc[0,'node']==1):
-                parcel = aloneNode[i].loc[0,'parcel']
-                if (parcel !='point'):
-                    parcelNum = int (parcel)
-                    index = int (aloneNode[i].loc[0,'idx'])
-                    ##transform based on a,b,c,d in matrix X
-                    loc = sequenceParcel.index(parcelNum) * 4
+            
+            # ## @STEP 14.
+            # ## TRANSFORM NODE/VERTEX
+            # ## transform node and vertex to new location after adjustment and error lambda
+            for i in range (len(dataPersils)):
+                if (i in sequenceParcel):
+                    ## find a, b, c, d in matrix X
+                    ## find error parcel
+                    loc = sequenceParcel.index(i) * 4
                     a = matrixX[colPersilStart + loc]
                     b = matrixX[colPersilStart + loc + 1]
                     c = matrixX[colPersilStart + loc + 2]
                     d = matrixX[colPersilStart + loc + 3]
-                    x = aloneNode[i].loc[0, 'x']
-                    y = aloneNode[i].loc[0, 'y']
-                    dataPersils[parcelNum].loc[index, 'x'] = a*x - b*y + c
-                    dataPersils[parcelNum].loc[index, 'y'] = b*x + a*y + d
-        
-        ## Progress FINISH @STEP 13
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+                    errorDeltaLambda = (math.sqrt(a*a + b*b)) - 1
+                    errorParcelPersen = pow((errorDeltaLambda*errorDeltaLambda*100),2)
+                    # print ("ERROR parcel index: ", i, " is: ", errorParcelPersen)
+                    self.dlg.logOutput.appendPlainText ("ERROR parcel index: "+str(i)+" >> "+str(errorParcelPersen))
+                    ## transform all vertex 
+                    for j in range (len(dataPersils[i].index)):
+                        if (dataPersils[i].loc[j,'control'] == 0):
+                            if (dataPersils[i].loc[j,'node']==0):
+                                dataPersils[i].loc[j,'x'] = a*dataPersils[i].loc[j,'x'] - b*dataPersils[i].loc[j,'y'] + c
+                                dataPersils[i].loc[j,'y'] = b*dataPersils[i].loc[j,'x'] + a*dataPersils[i].loc[j,'y'] + d
+            # print ("Data persils after matrix calculation")
+            # print (dataPersils)
+
+            ## Progress FINISH @STEP 14
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal) 
 
 
-        # ## @STEP 14a.
-        # ## CREATE ERROR ELIPSE
-        tieNumber = -1
-        ellipsError = pd.DataFrame({
-            'x' : [],
-            'y' : [],
-            'sv' : [],
-            'su' : [],
-            't' : [],
-            'eX' : [],
-            'eY' : []
-        })
-        for (i, tie) in enumerate (cleanTieGroups):
-            ## update for node with matrix Calculation
-            if tie['control'].sum() == 0:
-                tieNumber = tieNumber + 1
-                Sne = Sxx[i+1,i]
-                Snn = Sxx[i,i]
-                See = Sxx[i+1, i+1]
-                penyebut = Snn - See
-                if (penyebut == 0):
-                    t = 0 # degree of ellipse
-                else:
-                    t = t = 0.5*(math.atan(2*Sne/(Snn-See))+180) # degree of ellipse.
-                
-                Suu = See*math.sin(t)*math.sin(t)+2*Sne*math.cos(t)*math.sin(t)+Snn*math.cos(t)*math.cos(t)
-                Svv = See*math.cos(t)*math.cos(t)-2*Sne*math.cos(t)*math.sin(t)+Snn*math.sin(t)*math.sin(t)
-                Su = math.sqrt(Suu)*2 # major axis (multiply by to 2 to get diameter)
-                Sv = math.sqrt(Svv)*2 # minor axis (multiply by to 2 to get diameter)
-                coorX = matrixX[tieNumber*2].item()
-                coorY = matrixX[tieNumber*2+1].item()
-                eX = math.sqrt(Snn)
-                eY = math.sqrt(See)
-                # print(coorX, coorY, Sv, Su, t, eX, eY)
-                ellipsError.loc[tieNumber] = [coorX, coorY, Sv, Su, t, eX, eY]
-        # print (ellipsError)
-        # ## write new layer point for error ellipse:
-        nama_layer_valid = str(self.dlg.outputName.text())+"_error" 
-        uri ="Point?crs="+blockCRS
-        errorLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
-        errorLayer.dataProvider().addAttributes([
-            QgsField('id', QVariant.Int), 
-            QgsField('x', QVariant.Double),
-            QgsField('y', QVariant.Double),
-            QgsField('Sv', QVariant.Double),
-            QgsField('Su', QVariant.Double),
-            QgsField('t', QVariant.Double),
-            QgsField('eX', QVariant.Double),
-            QgsField('eY', QVariant.Double)
-            ])
-        errorLayer.updateFields()
-        errorLayer.startEditing()
-        features = []
+            # ## @STEP 15.
+            # ## SNAP TO SEGMENT PROCESS
+            if (self.dlg.checkBox.isChecked()):
+                ## Proses konversi ke pandas, dari data raw
+                data_parcels = pd.DataFrame({
+                    "parcel" : [],
+                    "urutan" : [],
+                    "point_id": []
+                })
+                data_points = pd.DataFrame({
+                    "x": [],
+                    "y": [],
+                    "control": []
+                })
+                segment_update = pd.DataFrame({
+                    "parcel" :[],
+                    "urutan" : [],
+                    "x": [],
+                    "y": [],
+                })
 
-        print (type(ellipsError.loc[0,'t']))
-        for ef in range(len(ellipsError.index)):
-            feature = QgsFeature()
-            point = QgsGeometry.fromPointXY(QgsPointXY(ellipsError.loc[ef, 'x'], ellipsError.loc[ef,'y']))
-            feature.setGeometry(point)  # Add the coordinates of the point
-            feature.setAttributes([
-                ef,
-                ellipsError.loc[ef,'x'].item(),
-                ellipsError.loc[ef,'y'].item(),
-                ellipsError.loc[ef,'sv'].item(),
-                ellipsError.loc[ef,'su'].item(),
-                ellipsError.loc[ef,'t'].item(),
-                ellipsError.loc[ef,'eX'].item(),
-                ellipsError.loc[ef,'eY'].item(),
-            ])
-            features.append(feature)
-        errorLayer.dataProvider().addFeatures(features)
-        errorLayer.updateExtents()
-        errorLayer.commitChanges()
-        QgsProject.instance().addMapLayer(errorLayer)
-
-        # SAMPLE IF YOU WANT TO CREATE POINT
-            # features = []
-            # for i in range(10):
-            #     point = QgsGeometry.fromPointXY(QgsPointXY(i, i))
-            #     feature = QgsFeature()
-            #     feature.setGeometry(point)
-            #     feature.setAttributes([i, i * 2])
-            #     features.append(feature)
-            # outputLayer.dataProvider().addFeatures(features)
-            # outputLayer.updateExtents()
-
-        # ## PROGRESS FINISH @STEP 15
-
-        
-        # ## @STEP 14.
-        # ## TRANSFORM NODE/VERTEX
-        # ## transform node and vertex to new location after adjustment and error lambda
-        for i in range (len(dataPersils)):
-            if (i in sequenceParcel):
-                ## find a, b, c, d in matrix X
-                ## find error parcel
-                loc = sequenceParcel.index(i) * 4
-                a = matrixX[colPersilStart + loc]
-                b = matrixX[colPersilStart + loc + 1]
-                c = matrixX[colPersilStart + loc + 2]
-                d = matrixX[colPersilStart + loc + 3]
-                errorDeltaLambda = (math.sqrt(a*a + b*b)) - 1
-                errorParcelPersen = pow((errorDeltaLambda*errorDeltaLambda*100),2)
-                # print ("ERROR parcel index: ", i, " is: ", errorParcelPersen)
-                self.dlg.logOutput.appendPlainText ("ERROR parcel index: "+str(i)+" >> "+str(errorParcelPersen))
-                ## transform all vertex 
-                for j in range (len(dataPersils[i].index)):
-                    if (dataPersils[i].loc[j,'control'] == 0):
-                        if (dataPersils[i].loc[j,'node']==0):
-                            dataPersils[i].loc[j,'x'] = a*dataPersils[i].loc[j,'x'] - b*dataPersils[i].loc[j,'y'] + c
-                            dataPersils[i].loc[j,'y'] = b*dataPersils[i].loc[j,'x'] + a*dataPersils[i].loc[j,'y'] + d
-        # print ("Data persils after matrix calculation")
-        # print (dataPersils)
-
-        ## Progress FINISH @STEP 14
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal) 
-
-
-        # ## @STEP 15.
-        # ## SNAP TO SEGMENT PROCESS
-        if (self.dlg.checkBox.isChecked()):
-            ## Proses konversi ke pandas, dari data raw
-            data_parcels = pd.DataFrame({
-                "parcel" : [],
-                "urutan" : [],
-                "point_id": []
-            })
-            data_points = pd.DataFrame({
-                "x": [],
-                "y": [],
-                "control": []
-            })
-            segment_update = pd.DataFrame({
-                "parcel" :[],
-                "urutan" : [],
-                "x": [],
-                "y": [],
-            })
-
-            parcel = 0
-            index_point = 0
-            index_parcel = 0
-            for i, point in enumerate (dataPersils):
-                point_count = point.shape[0]
-                urutan = 0
-                for j in range(point_count+1):
-                    ## insert ke data_points
-                    ## lalu ambil indexnya untuk di taruh pada data_persils
-                    # print (parcel, urutan, round(point.x(), 4, round(point.y(),4),  )
-                    # repeat the edge to beginning
-                    if j == point_count:
-                        j = 0
-                    # start create data structure
-                    x = round(point.loc[j, 'x'], 4)
-                    y = round(point.loc[j, 'y'], 4)
-                    control_status = point.loc[j, 'control']
-                    data_points_id = data_points[(data_points['x']  == x) & (data_points['y'] == y)].index.tolist()
-                    ## tambahkan ke data_points jika tidak ada
-                    if (len(data_points_id) == 0):
-                        ## tambahkan data ke data_persils
-                        data_parcels.loc[index_parcel] = [parcel, urutan, index_point]
-                        index_parcel = index_parcel +1
-                        ## tambahkan data ke data_points
-                        data_points.loc[index_point] = [x, y, control_status] 
-                        index_point = index_point + 1
-                        urutan = urutan +1
-                    else:
-                        ## tambahkan data ke data_persils
-                        data_parcels.loc[index_parcel] = [parcel, urutan, data_points_id[0]]
-                        index_parcel = index_parcel +1
-                        urutan = urutan +1
-                parcel = parcel +1
-            
-            # print (data_points.to_string())
-            # print (data_points.shape[0])
-            # print (data_parcels.to_string())   
-            
-            ## TAHAPAN PERATAAN TITIK IKAT BERDASARKAN TOLERANSI HASIL ADUMANIS
-            ## inisialisasi variabel
-            ## jenis control pada struktur data_points:
-            ## 0 : bukan kontrol
-            ## 1 : kontrol
-            ## 2 : merge point to index x
-
-            row_data_points = data_points.shape[0]
-            row_data_parcels = data_parcels.shape[0]
-            evaluate_dp = data_points
-            tieGroupTwo = []
-            
-            ## evaluate all point
-            i = j = 0
-            while i < row_data_points-1:
-                temp_tie = []
-                j = i + 1
-                while j <= row_data_points-1:
-                    pointA = QgsPointXY(evaluate_dp.loc[i,'x'], evaluate_dp.loc[i,'y'] )
-                    pointB = QgsPointXY(evaluate_dp.loc[j,'x'], evaluate_dp.loc[j,'y'])
-                    distance = pointA.distance(pointB)
-                    if (distance < tollerance):
-                        if len(temp_tie) > 0:
-                            temp_tie.append(j)
+                parcel = 0
+                index_point = 0
+                index_parcel = 0
+                for i, point in enumerate (dataPersils):
+                    point_count = point.shape[0]
+                    urutan = 0
+                    for j in range(point_count+1):
+                        ## insert ke data_points
+                        ## lalu ambil indexnya untuk di taruh pada data_persils
+                        # print (parcel, urutan, round(point.x(), 4, round(point.y(),4),  )
+                        # repeat the edge to beginning
+                        if j == point_count:
+                            j = 0
+                        # start create data structure
+                        x = round(point.loc[j, 'x'], 4)
+                        y = round(point.loc[j, 'y'], 4)
+                        control_status = point.loc[j, 'control']
+                        data_points_id = data_points[(data_points['x']  == x) & (data_points['y'] == y)].index.tolist()
+                        ## tambahkan ke data_points jika tidak ada
+                        if (len(data_points_id) == 0):
+                            ## tambahkan data ke data_persils
+                            data_parcels.loc[index_parcel] = [parcel, urutan, index_point]
+                            index_parcel = index_parcel +1
+                            ## tambahkan data ke data_points
+                            data_points.loc[index_point] = [x, y, control_status] 
+                            index_point = index_point + 1
+                            urutan = urutan +1
                         else:
-                            temp_tie.append(i)
-                            temp_tie.append(j)
-                    j = j+1
-                tieGroupTwo.append(temp_tie)
-                i = i + 1
+                            ## tambahkan data ke data_persils
+                            data_parcels.loc[index_parcel] = [parcel, urutan, data_points_id[0]]
+                            index_parcel = index_parcel +1
+                            urutan = urutan +1
+                    parcel = parcel +1
+                
+                # print (data_points.to_string())
+                # print (data_points.shape[0])
+                # print (data_parcels.to_string())   
+                
+                ## TAHAPAN PERATAAN TITIK IKAT BERDASARKAN TOLERANSI HASIL ADUMANIS
+                ## inisialisasi variabel
+                ## jenis control pada struktur data_points:
+                ## 0 : bukan kontrol
+                ## 1 : kontrol
+                ## 2 : merge point to index x
 
-            ### merging tieGroupTwo
-            merge_tieGroupTwo = merge(tieGroupTwo)
-            # print (tieGroupTwo)
-            # print (merge_tieGroupTwo)   
+                row_data_points = data_points.shape[0]
+                row_data_parcels = data_parcels.shape[0]
+                evaluate_dp = data_points
+                tieGroupTwo = []
+                
+                ## evaluate all point
+                i = j = 0
+                while i < row_data_points-1:
+                    temp_tie = []
+                    j = i + 1
+                    while j <= row_data_points-1:
+                        pointA = QgsPointXY(evaluate_dp.loc[i,'x'], evaluate_dp.loc[i,'y'] )
+                        pointB = QgsPointXY(evaluate_dp.loc[j,'x'], evaluate_dp.loc[j,'y'])
+                        distance = pointA.distance(pointB)
+                        if (distance < tollerance):
+                            if len(temp_tie) > 0:
+                                temp_tie.append(j)
+                            else:
+                                temp_tie.append(i)
+                                temp_tie.append(j)
+                        j = j+1
+                    tieGroupTwo.append(temp_tie)
+                    i = i + 1
 
-            ## update evaluate_dp as temporary data_points  struktur and update data_parcels
-            for i in range(len(merge_tieGroupTwo)):
-                list_data = list(merge_tieGroupTwo[i])
-                if len(list_data) > 0 :
-                    #cek kontrol
-                    jml_control = 0
-                    for j in range(len(list_data)):
-                        if evaluate_dp.loc[list_data[j], 'control'] == 1:
-                            jml_control = jml_control + 1
+                ### merging tieGroupTwo
+                merge_tieGroupTwo = merge(tieGroupTwo)
+                # print (tieGroupTwo)
+                # print (merge_tieGroupTwo)   
 
-                    ## jika tidak ada kontrol
-                    if jml_control == 0:
-                        # hitung avg
-                        newX = 0
-                        newY = 0
+                ## update evaluate_dp as temporary data_points  struktur and update data_parcels
+                for i in range(len(merge_tieGroupTwo)):
+                    list_data = list(merge_tieGroupTwo[i])
+                    if len(list_data) > 0 :
+                        #cek kontrol
+                        jml_control = 0
                         for j in range(len(list_data)):
-                            newX = newX + evaluate_dp.loc[list_data[j], 'x']
-                            newY = newY + evaluate_dp.loc[list_data[j], 'y']
-                        evaluate_dp.loc[list_data[0], 'x'] = newX/len(list_data)
-                        evaluate_dp.loc[list_data[0], 'y'] = newY/len(list_data)
+                            if evaluate_dp.loc[list_data[j], 'control'] == 1:
+                                jml_control = jml_control + 1
 
-                        for j in range(1, len(list_data)):
-                            evaluate_dp.loc[list_data[j], 'x'] = list_data[0]
-                            evaluate_dp.loc[list_data[j], 'y'] = 0
-                            evaluate_dp.loc[list_data[j], 'control'] = 2
-                    ## jika terdapat minimal 1 kontrol
-                    else:
-                        for j in range(len(list_data)):
-                            if evaluate_dp.loc[list_data[j],'control'] == 0:
-                                ##find closest control
-                                distance = tollerance
-                                pointA = QgsPointXY(evaluate_dp.loc[list_data[j], 'x'], evaluate_dp.loc[list_data[j], 'y'])
-                                for k in range(len(list_data)):
-                                    if k != j and evaluate_dp.loc[list_data[k], 'control'] == 1:
-                                        pointB = QgsPointXY(evaluate_dp.loc[list_data[k], 'x'], evaluate_dp.loc[list_data[k], 'y'])
-                                        tempdistance = pointA.distance(pointB)
-                                        if tempdistance < distance:
-                                            loc_j_toupdate = k
-                                            distance = tempdistance
-                                
-                                ## update non control point to closest control
-                                evaluate_dp.loc[list_data[j], 'x'] = list_data[loc_j_toupdate]
+                        ## jika tidak ada kontrol
+                        if jml_control == 0:
+                            # hitung avg
+                            newX = 0
+                            newY = 0
+                            for j in range(len(list_data)):
+                                newX = newX + evaluate_dp.loc[list_data[j], 'x']
+                                newY = newY + evaluate_dp.loc[list_data[j], 'y']
+                            evaluate_dp.loc[list_data[0], 'x'] = newX/len(list_data)
+                            evaluate_dp.loc[list_data[0], 'y'] = newY/len(list_data)
+
+                            for j in range(1, len(list_data)):
+                                evaluate_dp.loc[list_data[j], 'x'] = list_data[0]
                                 evaluate_dp.loc[list_data[j], 'y'] = 0
                                 evaluate_dp.loc[list_data[j], 'control'] = 2
-                        
-            # print (evaluate_dp)
-            # ## update data_parcels then data_points
-            for i in range(row_data_parcels):
-                point_id = data_parcels.loc[i, 'point_id']
-                if evaluate_dp.loc[point_id, 'control'] == 2:
-                    new_loc = evaluate_dp.loc[point_id, 'x']
-                    data_parcels.loc[i, 'point_id'] = new_loc
-            
-            for i in range(row_data_points):
-                if evaluate_dp.loc[i, 'control'] == 2:
-                    evaluate_dp = evaluate_dp.drop(i)
-            
-            ##reset index from 0
-            data_points = evaluate_dp.reset_index(drop=False)
-            ##reset index data_parcels
-            for idx, row in data_points.iterrows():
-                if  idx != row['index']:
-                    ## update semua data_parcels dengan point_id = row['index'] menjadi idx
-                    update_parcels = data_parcels.loc[data_parcels["point_id"] == row['index']].index.tolist()
-                    for j in range(len(update_parcels)):
-                        data_parcels.loc[update_parcels[j], 'point_id'] = idx
+                        ## jika terdapat minimal 1 kontrol
+                        else:
+                            for j in range(len(list_data)):
+                                if evaluate_dp.loc[list_data[j],'control'] == 0:
+                                    ##find closest control
+                                    distance = tollerance
+                                    pointA = QgsPointXY(evaluate_dp.loc[list_data[j], 'x'], evaluate_dp.loc[list_data[j], 'y'])
+                                    for k in range(len(list_data)):
+                                        if k != j and evaluate_dp.loc[list_data[k], 'control'] == 1:
+                                            pointB = QgsPointXY(evaluate_dp.loc[list_data[k], 'x'], evaluate_dp.loc[list_data[k], 'y'])
+                                            tempdistance = pointA.distance(pointB)
+                                            if tempdistance < distance:
+                                                loc_j_toupdate = k
+                                                distance = tempdistance
+                                    
+                                    ## update non control point to closest control
+                                    evaluate_dp.loc[list_data[j], 'x'] = list_data[loc_j_toupdate]
+                                    evaluate_dp.loc[list_data[j], 'y'] = 0
+                                    evaluate_dp.loc[list_data[j], 'control'] = 2
+                            
+                # print (evaluate_dp)
+                # ## update data_parcels then data_points
+                for i in range(row_data_parcels):
+                    point_id = data_parcels.loc[i, 'point_id']
+                    if evaluate_dp.loc[point_id, 'control'] == 2:
+                        new_loc = evaluate_dp.loc[point_id, 'x']
+                        data_parcels.loc[i, 'point_id'] = new_loc
+                
+                for i in range(row_data_points):
+                    if evaluate_dp.loc[i, 'control'] == 2:
+                        evaluate_dp = evaluate_dp.drop(i)
+                
+                ##reset index from 0
+                data_points = evaluate_dp.reset_index(drop=False)
+                ##reset index data_parcels
+                for idx, row in data_points.iterrows():
+                    if  idx != row['index']:
+                        ## update semua data_parcels dengan point_id = row['index'] menjadi idx
+                        update_parcels = data_parcels.loc[data_parcels["point_id"] == row['index']].index.tolist()
+                        for j in range(len(update_parcels)):
+                            data_parcels.loc[update_parcels[j], 'point_id'] = idx
 
 
-            # print (data_points.to_string())
-            # print (data_parcels.to_string())
-            
-            ## TAHAP CLOSEST TITIK KE SEGMENT
-            ## inisialisasi variabel
-            
-            segmentStart = [0,0]
-            segmentEnd = [0,0]
-            pointNode = [0,0]
-            segmentUpdate = []
-            # update row_data_points after reindex
-            row_data_points = data_points.shape[0]
-
-            # print (data_points.loc[i,'x'], data_points.loc[i,'y'])
-            idx = 0
-            for i in range(0, row_data_points):
+                # print (data_points.to_string())
+                # print (data_parcels.to_string())
+                
+                ## TAHAP CLOSEST TITIK KE SEGMENT
+                ## inisialisasi variabel
+                
+                segmentStart = [0,0]
+                segmentEnd = [0,0]
                 pointNode = [0,0]
-                pointNode[0] = data_points.loc[i,'x']
-                pointNode[1] = data_points.loc[i,'y']
-                if data_points.loc[i,'control'] == 0:
-                    ## cari parcel dari point ke-i untuk di-exclude dalam pengecekan arc
-                    exclude_parcels = data_parcels.loc[data_parcels["point_id"]== i, "parcel"].tolist()
-                    temp_distance = tollerance
-                    index_point_toUpdate = -1
-                    ## Generate all arc/segment
-                    # print (exclude_parcels)
-                    j = -1
-                    while j < row_data_parcels-2:
-                        j = j+1
-                        ## jika persil tidak dalam exclude persil jangan di cek
-                        no_parcel = data_parcels.loc[j, "parcel"]
-                        if no_parcel  not in exclude_parcels: 
-                            ## generate arc
-                            segmentStart[0] = data_points.loc[data_parcels.loc[j, 'point_id'], 'x']
-                            segmentStart[1] = data_points.loc[data_parcels.loc[j, 'point_id'], 'y']
-                            segmentEnd[0] = data_points.loc[data_parcels.loc[j+1, 'point_id'], 'x']
-                            segmentEnd[1] = data_points.loc[data_parcels.loc[j+1, 'point_id'], 'y']
-                            distance, pointOnSegment = proj (pointNode, segmentStart, segmentEnd)
-                            if distance < tollerance and distance > 0.01:
-                                if distance < temp_distance:
-                                    temp_distance = distance
-                                    index_point_toUpdate = i
-                                    ## information for segment update [nomor_parcel, urutan yang di tambah]
-                                    segmentUpdate = [no_parcel, data_parcels.loc[j, 'urutan'], pointOnSegment]
-                        ## SKIP j
-                        # karena struktur data parcel disimpan continue, (tidak membandingkan parcelA-urutanAkhir dengan parcelB-urutanAwal)
-                        # maka perlu skip j agar tidak mencocokkan dengan segment yang tidak ada
-                        # ditambah 2 seharusnya, tapi di awal loop sudah di tambahkan 1 lagi
-                        if j < row_data_parcels - 2:
-                            if no_parcel != data_parcels.loc[j+2,"parcel"]:
-                                j = j + 1
-                    ## update new point and segment
-                    if index_point_toUpdate >=0:
-                        ## update point
-                        data_points.loc[index_point_toUpdate, 'x'] = segmentUpdate[2].x()
-                        data_points.loc[index_point_toUpdate, 'y'] = segmentUpdate[2].y()
-                        ## update segment
-                        segment_update.loc[idx, "parcel"] = segmentUpdate[0]
-                        segment_update.loc[idx, "urutan"] = segmentUpdate[1]
-                        segment_update.loc[idx, "x"] = segmentUpdate[2].x()
-                        segment_update.loc[idx, "y"] = segmentUpdate[2].y()
-                        idx = idx + 1
-                        # print("Point update index ke: ", index_point_toUpdate)
-                        # print("Segment update:", segmentUpdate[0], segmentUpdate[1], segmentUpdate[2].x(), segmentUpdate[2].y())
+                segmentUpdate = []
+                # update row_data_points after reindex
+                row_data_points = data_points.shape[0]
 
-            ## urutkan segment_update:
-            segment_update = segment_update.sort_values(by=["parcel", "urutan"]).reset_index(drop=True)
-            # print (segment_update)
+                # print (data_points.loc[i,'x'], data_points.loc[i,'y'])
+                idx = 0
+                for i in range(0, row_data_points):
+                    pointNode = [0,0]
+                    pointNode[0] = data_points.loc[i,'x']
+                    pointNode[1] = data_points.loc[i,'y']
+                    if data_points.loc[i,'control'] == 0:
+                        ## cari parcel dari point ke-i untuk di-exclude dalam pengecekan arc
+                        exclude_parcels = data_parcels.loc[data_parcels["point_id"]== i, "parcel"].tolist()
+                        temp_distance = tollerance
+                        index_point_toUpdate = -1
+                        ## Generate all arc/segment
+                        # print (exclude_parcels)
+                        j = -1
+                        while j < row_data_parcels-2:
+                            j = j+1
+                            ## jika persil tidak dalam exclude persil jangan di cek
+                            no_parcel = data_parcels.loc[j, "parcel"]
+                            if no_parcel  not in exclude_parcels: 
+                                ## generate arc
+                                segmentStart[0] = data_points.loc[data_parcels.loc[j, 'point_id'], 'x']
+                                segmentStart[1] = data_points.loc[data_parcels.loc[j, 'point_id'], 'y']
+                                segmentEnd[0] = data_points.loc[data_parcels.loc[j+1, 'point_id'], 'x']
+                                segmentEnd[1] = data_points.loc[data_parcels.loc[j+1, 'point_id'], 'y']
+                                distance, pointOnSegment = proj (pointNode, segmentStart, segmentEnd)
+                                if distance < tollerance and distance > 0.01:
+                                    if distance < temp_distance:
+                                        temp_distance = distance
+                                        index_point_toUpdate = i
+                                        ## information for segment update [nomor_parcel, urutan yang di tambah]
+                                        segmentUpdate = [no_parcel, data_parcels.loc[j, 'urutan'], pointOnSegment]
+                            ## SKIP j
+                            # karena struktur data parcel disimpan continue, (tidak membandingkan parcelA-urutanAkhir dengan parcelB-urutanAwal)
+                            # maka perlu skip j agar tidak mencocokkan dengan segment yang tidak ada
+                            # ditambah 2 seharusnya, tapi di awal loop sudah di tambahkan 1 lagi
+                            if j < row_data_parcels - 2:
+                                if no_parcel != data_parcels.loc[j+2,"parcel"]:
+                                    j = j + 1
+                        ## update new point and segment
+                        if index_point_toUpdate >=0:
+                            ## update point
+                            data_points.loc[index_point_toUpdate, 'x'] = segmentUpdate[2].x()
+                            data_points.loc[index_point_toUpdate, 'y'] = segmentUpdate[2].y()
+                            ## update segment
+                            segment_update.loc[idx, "parcel"] = segmentUpdate[0]
+                            segment_update.loc[idx, "urutan"] = segmentUpdate[1]
+                            segment_update.loc[idx, "x"] = segmentUpdate[2].x()
+                            segment_update.loc[idx, "y"] = segmentUpdate[2].y()
+                            idx = idx + 1
+                            # print("Point update index ke: ", index_point_toUpdate)
+                            # print("Segment update:", segmentUpdate[0], segmentUpdate[1], segmentUpdate[2].x(), segmentUpdate[2].y())
 
-            # ## @STEP 16A. SHOW ON CANVAS
-            ## GENERATE PARCEL, map to canvas
-            nama_layer_valid = str(self.dlg.outputName.text())
-            uri ="MultiPolygon?crs="+blockCRS
-            outputLayerTemp = QgsVectorLayer(uri, nama_layer_valid, "memory")
-            source_field.append(QgsField('Luas Lama', QVariant.Double))
-            source_field.append(QgsField('Luas Baru', QVariant.Double))
-            source_field.append(QgsField('Selisih Luas(%)', QVariant.Double))
-            outputLayerTemp.dataProvider().addAttributes(source_field)
-            outputLayerTemp.updateFields()
-            outputLayerTemp.startEditing()
+                ## urutkan segment_update:
+                segment_update = segment_update.sort_values(by=["parcel", "urutan"]).reset_index(drop=True)
+                # print (segment_update)
 
-            coords = []
-            persil_idx = 0
-            for j in range(row_data_parcels):
-                if data_parcels.loc[j,'urutan'] == 0:
-                    if (len(coords) > 0 ):
+                # ## @STEP 16A. SHOW ON CANVAS
+                ## GENERATE PARCEL, map to canvas
+                nama_layer_valid = str(self.dlg.outputName.text()+"_blok_"+str(bi_i))
+                uri ="MultiPolygon?crs="+blockCRS
+                outputLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
+                source_field.append(QgsField('Luas Lama', QVariant.Double))
+                source_field.append(QgsField('Luas Baru', QVariant.Double))
+                source_field.append(QgsField('Selisih Luas(%)', QVariant.Double))
+                outputLayer.dataProvider().addAttributes(source_field)
+                outputLayer.updateFields()
+                outputLayer.startEditing()
+
+                coords = []
+                persil_idx = 0
+                for j in range(row_data_parcels):
+                    if data_parcels.loc[j,'urutan'] == 0:
+                        if (len(coords) > 0 ):
+                            polygon = QgsGeometry.fromPolygonXY( [[ QgsPointXY( pair[0], pair[1] ) for pair in coords ]] ) 
+                            feature = QgsFeature()
+                            feature.setGeometry(polygon)
+
+                            attribute_to_add = source_attr[persil_idx]
+                            attribute_to_add.append(source_area[persil_idx])
+                            attribute_to_add.append(polygon.area())
+                            selisih_luas = (polygon.area() - source_area[persil_idx]) / source_area[persil_idx] * 100
+                            attribute_to_add.append(selisih_luas)
+                            feature.setAttributes(attribute_to_add)
+
+                            persil_idx = persil_idx + 1
+                            outputLayer.addFeature(feature)
+                        coords.clear()
+                        coords = []
+                        ## cek apakah parcel ke j ada pada segment_update, jika ada append coords ke urutan yang sesuai
+                        ## parcel_update_list = segment_update[segment_update["parcel"]== data_parcels.loc[j, 'parcel']].index.tolist()
+                        parcel_update_list = segment_update[segment_update["parcel"]== data_parcels.loc[j, 'parcel']]
+                    
+                    coords.append(
+                        [
+                            data_points.loc[data_parcels.loc[j, 'point_id'], 'x'], 
+                            data_points.loc[data_parcels.loc[j, 'point_id'], 'y']
+                        ])
+                        
+                    if  parcel_update_list.shape[0] > 0:
+                        ## cari urutan ke berapa sekarang yang akan di update dari index j di 
+                        parcel_update_now = parcel_update_list[parcel_update_list["urutan"]== data_parcels.loc[j, "urutan"]]
+                        if parcel_update_now.shape[0] > 0:
+                            start   = [data_points.loc[data_parcels.loc[j, 'point_id'], 'x'], data_points.loc[data_parcels.loc[j, 'point_id'], 'y']]
+                            end     = [data_points.loc[data_parcels.loc[j+1, 'point_id'], 'x'], data_points.loc[data_parcels.loc[j+1, 'point_id'], 'y']]
+                            h_asc = v_asc = True
+                            v_check = False
+                            if start[0] > end[0]: h_asc = False
+                            if start[0] == end[0]: v_check = True
+                            if start[1] > end[1]: v_asc = False
+                            if not v_check:
+                                if h_asc:
+                                    parcel_update_now = parcel_update_now.sort_values(by="x").reset_index(drop=True)
+                                else:
+                                    parcel_update_now = parcel_update_now.sort_values(by="x", ascending=False).reset_index(drop=True)
+                            else:
+                                if v_asc:
+                                    parcel_update_now = parcel_update_now.sort_values(by="y").reset_index(drop=True)
+                                else:
+                                    parcel_update_now = parcel_update_now.sort_values(by="y", ascending=False).reset_index(drop=True)
+
+                            for k in range(parcel_update_now.shape[0]):
+                                coords.append([
+                                    parcel_update_now.loc[k, "x"],
+                                    parcel_update_now.loc[k, "y"]
+                                ])
+                        # for u_idx in parcel_update_list:
+                        #     u_urut = segment_update.loc[u_idx, 'urutan']
+                        #     n_urut = data_parcels.loc[j, 'urutan']
+                        #     if u_urut == n_urut:
+                        #         ## Bagaimana jika terdapat 2/lebih point pada segment yang sama?
+                        #         ## agar tidak terbalik?
+                        #         ## urutkan vertex
+                                
+                        #         coords.append([
+                        #             segment_update.loc[u_idx, "x"],
+                        #             segment_update.loc[u_idx, "y"],
+                        #         ])
+
+                        
+                    ##
+                    if j == row_data_parcels -1:
                         polygon = QgsGeometry.fromPolygonXY( [[ QgsPointXY( pair[0], pair[1] ) for pair in coords ]] ) 
                         feature = QgsFeature()
                         feature.setGeometry(polygon)
-
                         attribute_to_add = source_attr[persil_idx]
                         attribute_to_add.append(source_area[persil_idx])
                         attribute_to_add.append(polygon.area())
@@ -1149,139 +1246,76 @@ class adumanis:
                         feature.setAttributes(attribute_to_add)
 
                         persil_idx = persil_idx + 1
-                        outputLayerTemp.addFeature(feature)
-                    coords.clear()
-                    coords = []
-                    ## cek apakah parcel ke j ada pada segment_update, jika ada append coords ke urutan yang sesuai
-                    ## parcel_update_list = segment_update[segment_update["parcel"]== data_parcels.loc[j, 'parcel']].index.tolist()
-                    parcel_update_list = segment_update[segment_update["parcel"]== data_parcels.loc[j, 'parcel']]
+                        outputLayer.addFeature(feature)
                 
-                coords.append(
-                    [
-                        data_points.loc[data_parcels.loc[j, 'point_id'], 'x'], 
-                        data_points.loc[data_parcels.loc[j, 'point_id'], 'y']
-                    ])
-                     
-                if  parcel_update_list.shape[0] > 0:
-                    ## cari urutan ke berapa sekarang yang akan di update dari index j di 
-                    parcel_update_now = parcel_update_list[parcel_update_list["urutan"]== data_parcels.loc[j, "urutan"]]
-                    if parcel_update_now.shape[0] > 0:
-                        start   = [data_points.loc[data_parcels.loc[j, 'point_id'], 'x'], data_points.loc[data_parcels.loc[j, 'point_id'], 'y']]
-                        end     = [data_points.loc[data_parcels.loc[j+1, 'point_id'], 'x'], data_points.loc[data_parcels.loc[j+1, 'point_id'], 'y']]
-                        h_asc = v_asc = True
-                        v_check = False
-                        if start[0] > end[0]: h_asc = False
-                        if start[0] == end[0]: v_check = True
-                        if start[1] > end[1]: v_asc = False
-                        if not v_check:
-                            if h_asc:
-                                parcel_update_now = parcel_update_now.sort_values(by="x").reset_index(drop=True)
-                            else:
-                                parcel_update_now = parcel_update_now.sort_values(by="x", ascending=False).reset_index(drop=True)
-                        else:
-                            if v_asc:
-                                parcel_update_now = parcel_update_now.sort_values(by="y").reset_index(drop=True)
-                            else:
-                                parcel_update_now = parcel_update_now.sort_values(by="y", ascending=False).reset_index(drop=True)
-
-                        for k in range(parcel_update_now.shape[0]):
-                            coords.append([
-                                parcel_update_now.loc[k, "x"],
-                                parcel_update_now.loc[k, "y"]
-                            ])
-                    # for u_idx in parcel_update_list:
-                    #     u_urut = segment_update.loc[u_idx, 'urutan']
-                    #     n_urut = data_parcels.loc[j, 'urutan']
-                    #     if u_urut == n_urut:
-                    #         ## Bagaimana jika terdapat 2/lebih point pada segment yang sama?
-                    #         ## agar tidak terbalik?
-                    #         ## urutkan vertex
-                            
-                    #         coords.append([
-                    #             segment_update.loc[u_idx, "x"],
-                    #             segment_update.loc[u_idx, "y"],
-                    #         ])
-
                     
-                ##
-                if j == row_data_parcels -1:
-                    polygon = QgsGeometry.fromPolygonXY( [[ QgsPointXY( pair[0], pair[1] ) for pair in coords ]] ) 
-                    feature = QgsFeature()
-                    feature.setGeometry(polygon)
-                    attribute_to_add = source_attr[persil_idx]
-                    attribute_to_add.append(source_area[persil_idx])
-                    attribute_to_add.append(polygon.area())
-                    selisih_luas = (polygon.area() - source_area[persil_idx]) / source_area[persil_idx] * 100
-                    attribute_to_add.append(selisih_luas)
-                    feature.setAttributes(attribute_to_add)
-
-                    persil_idx = persil_idx + 1
-                    outputLayerTemp.addFeature(feature)
-            
+                outputLayer.commitChanges()
+                # QgsProject.instance().addMapLayer(outputLayer)
+                QgsProject.instance().addMapLayer(outputLayer, False)    #False is the key
+                groupLayer.addLayer(outputLayer)
                 
-            outputLayerTemp.commitChanges()
-            QgsProject.instance().addMapLayer(outputLayerTemp)
 
-            ## Progress FINISH @STEP 16A
+                ## Progress FINISH @STEP 16A
 
-        else:
-        # ## 12. b if not segment process
-        # ## OUT/SAVE RESULT
-        # ## create persil result after calculation
-        # print ("WKBTYPE:",selectedLayer.wkbType())
-        # print ("QGISmultipoly: ", QgsWkbTypes.MultiPolygon)
-            nama_layer_valid = str(self.dlg.outputName.text())
+            else:
+            # ## 12. b if not segment process
+            # ## OUT/SAVE RESULT
+            # ## create persil result after calculation
+            # print ("WKBTYPE:",selectedLayer.wkbType())
+            # print ("QGISmultipoly: ", QgsWkbTypes.MultiPolygon)
             
-            uri ="MultiPolygon?crs="+blockCRS
-            outputLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
-            source_field.append(QgsField('Luas Lama', QVariant.Double))
-            source_field.append(QgsField('Luas Baru', QVariant.Double))
-            source_field.append(QgsField('Selisih Luas(%)', QVariant.Double))
-            outputLayer.dataProvider().addAttributes(source_field)
-            outputLayer.updateFields()
+                # ## @STEP 16B. SHOW ON CANVAS
+                nama_layer_valid = str(self.dlg.outputName.text()+"_blok_"+str(bi_i))
+                uri ="MultiPolygon?crs="+blockCRS
+                outputLayer = QgsVectorLayer(uri, nama_layer_valid, "memory")
+                source_field.append(QgsField('Luas Lama', QVariant.Double))
+                source_field.append(QgsField('Luas Baru', QVariant.Double))
+                source_field.append(QgsField('Selisih Luas(%)', QVariant.Double))
+                outputLayer.dataProvider().addAttributes(source_field)
+                outputLayer.updateFields()
+                outputLayer.startEditing()
 
-            # ## @STEP 16B. SHOW ON CANVAS
-            outputLayer.startEditing()
-            for i in range (len(dataPersils)):
-            # for source_feature in selectedLayer.getFeatures():
-                feature = QgsFeature()
-                coordinatePoints = []
-                pointtoAdd = []
-                for j in range(len(dataPersils[i].index)):
-                    temp = (dataPersils[i].loc[j,'x'], dataPersils[i].loc[j,'y'])
-                    coordinatePoints.append(temp)
-                ## apend to begining point
-                coordinatePoints.append((dataPersils[i].loc[0,'x'], dataPersils[i].loc[0,'y']))
-                pointtoAdd.append(coordinatePoints)
-                parcel = [[[QgsPointXY(point[0],point[1]) for point in polygon ] for polygon in pointtoAdd ]]
-                new_parcel_area = QgsGeometry.fromMultiPolygonXY(parcel)
-                feature.setGeometry(new_parcel_area)
-                attribute_to_add = source_attr[i]
-                attribute_to_add.append(source_area[i])
-                attribute_to_add.append(new_parcel_area.area())
-                selisih_luas = (new_parcel_area.area() - source_area[i]) / source_area[i] * 100
-                attribute_to_add.append(selisih_luas)
-                # feature.setAttributes(source_attr[i])
-                feature.setAttributes(attribute_to_add)
-                outputLayer.addFeature(feature)
-            outputLayer.commitChanges()
+                for i in range (len(dataPersils)):
+                # for source_feature in selectedLayer.getFeatures():
+                    feature = QgsFeature()
+                    coordinatePoints = []
+                    pointtoAdd = []
+                    for j in range(len(dataPersils[i].index)):
+                        temp = (dataPersils[i].loc[j,'x'], dataPersils[i].loc[j,'y'])
+                        coordinatePoints.append(temp)
+                    ## apend to begining point
+                    coordinatePoints.append((dataPersils[i].loc[0,'x'], dataPersils[i].loc[0,'y']))
+                    pointtoAdd.append(coordinatePoints)
+                    parcel = [[[QgsPointXY(point[0],point[1]) for point in polygon ] for polygon in pointtoAdd ]]
+                    new_parcel_area = QgsGeometry.fromMultiPolygonXY(parcel)
+                    feature.setGeometry(new_parcel_area)
+                    attribute_to_add = source_attr[i]
+                    attribute_to_add.append(source_area[i])
+                    attribute_to_add.append(new_parcel_area.area())
+                    selisih_luas = (new_parcel_area.area() - source_area[i]) / source_area[i] * 100
+                    attribute_to_add.append(selisih_luas)
+                    # feature.setAttributes(source_attr[i])
+                    feature.setAttributes(attribute_to_add)
+                    outputLayer.addFeature(feature)
+                outputLayer.commitChanges()
+                # Add layer to the project and map view
+                # QgsProject.instance().addMapLayer(outputLayer)
+                QgsProject.instance().addMapLayer(outputLayer, False)    #False is the key
+                groupLayer.addLayer(outputLayer)
+                
+                ## Progress FINISH @STEP 16B
 
-            # Add layer to the project and map view
-            QgsProject.instance().addMapLayer(outputLayer)
-            
-            ## Progress FINISH @STEP 16B
+            ## Progress FINISH @STEP 15 and @STEP 16
+            barVal = barVal+steper
+            if barVal> 100: barVal = 100
+            self.dlg.progressBar.setValue(barVal)
 
-        ## Progress FINISH @STEP 15 and @STEP 16
-        barVal = barVal+steper
-        if barVal> 100: barVal = 100
-        self.dlg.progressBar.setValue(barVal)
+            ## Switch to log tab
+            self.dlg.tabWidget.setCurrentIndex(1)
 
-        ## Switch to log tab
-        self.dlg.tabWidget.setCurrentIndex(1)
-
-        ## FLUSH VARIABLE
-        # initializing d with dir()
-        # This will store a list of all the variables in the program
+            ## FLUSH VARIABLE
+            # initializing d with dir()
+            # This will store a list of all the variables in the program
         del dataRawPersil
         del vertex
         del controlCoordinates
@@ -1296,7 +1330,10 @@ class adumanis:
         del tieIdxMerge 
         del aloneNode 
         del SdSxx
-
+        del Qxx
+        del AtA
+        del AtF
+        del At
 
         msg = str("Proses Adumanis telah selesai!")
         self.iface.messageBar().pushMessage("Adumanis", msg, level=Qgis.Success)
@@ -1327,7 +1364,8 @@ class adumanis:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        # result = self.dlg.exec_()
+        self.dlg.exec_()
 
         # # See if OK was pressed
         # if result:

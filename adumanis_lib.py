@@ -101,7 +101,7 @@ def findNIBIndex(Fields):
     return NIBIndex
 
 def nodeEvaluation(prevPoint, nextPoint, currPoint):
-    toleranceNode = 2.5
+    toleranceNode = 1
     x12 = prevPoint[0]-currPoint[0]
     y12 = prevPoint[1]-currPoint[1]
     x23 = nextPoint[0]-currPoint[0]
@@ -110,8 +110,18 @@ def nodeEvaluation(prevPoint, nextPoint, currPoint):
     D12 = math.sqrt( x12**2 + y12**2)
     D23 = math.sqrt( x23**2 + y23**2)
 
-    # Selisih lebih dari 1 meter
-    if (D12 > toleranceNode or D23 > toleranceNode):
+    if D12 > toleranceNode and D23 > toleranceNode:
+        return True
+    elif D12 == 0 and D23 == 0:
+        return False
+    elif D12 == 0 or D23 == 0:
+        return True
+    elif D12/D23 > 1.2 or D12/D23 < 0.8:
+        return True
+    else:
+
+    # Selisih lebih dari tollenarceNode (meter)
+    # if (D12 > toleranceNode or D23 > toleranceNode):
         #jika sudut tegak lurus, menghindari nilai pembagian dengan 0 ketika menghitung azimut.
         if y12 == 0 or y23 == 0:
             return True
@@ -129,8 +139,8 @@ def nodeEvaluation(prevPoint, nextPoint, currPoint):
                     return True
                 else:
                     return False
-    else:
-        return False
+    # else:
+    #     return False
 
 def closestControl(tie, dataPoint):
     point = [dataPoint.loc['x'], dataPoint.loc['y']]
@@ -237,3 +247,13 @@ def merge(lsts):
             results.append(common)
         sets = results
     return sets
+
+def uniqueList(lsts):
+    unique_list = []
+ 
+    # traverse for all elements
+    for x in lsts:
+        # check if exists in unique_list or not
+        if x not in unique_list:
+            unique_list.append(x)
+    return unique_list
